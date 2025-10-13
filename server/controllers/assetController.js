@@ -1,4 +1,3 @@
-// server/controllers/assetController.js
 const yahooFinance = require('yahoo-finance2').default;
 const db = require('../config/db');
 
@@ -9,17 +8,31 @@ const searchStocks = async (req, res) => {
 
   try {
     const results = await yahooFinance.search(query, { newsCount: 0 });
-    const formattedResults = results.quotes
-      .filter(q => q.exchDisp === 'NSI') // Filter for NSE stocks
+
+    // Ensure results.quotes exists and is an array
+    const quotes = Array.isArray(results.quotes) ? results.quotes : [];
+
+    // FIX: The filter is now more robust and correctly formatted.
+    // It checks three conditions:
+    // 1. The exchange is "NSI" (National Stock Exchange of India)
+    // 2. The exchange is "NSE"
+    // 3. The symbol ends with ".NS"
+    // It also ensures the symbol exists before trying to check it.
+    const formattedResults = quotes
+      .filter(q =>
+        q && q.symbol && (q.exchDisp === 'NSI' || q.exchDisp === 'NSE' || q.symbol.endsWith('.NS'))
+      )
       .map(q => ({
         symbol: q.symbol,
-        name: q.longname || q.shortname,
+        name: q.longname || q.shortname || q.symbol, // Fallback to symbol if name is missing
         type: 'Stock'
       }));
+
     res.json(formattedResults);
   } catch (err) {
     console.error('Stock search error:', err);
-    res.status(500).send('Server Error');
+    // On error, return an empty array to prevent breaking the frontend
+    res.json([]);
   }
 };
 
@@ -37,15 +50,16 @@ const searchMutualFunds = async (req, res) => {
     const results = await db.query(sql, [`%${query}%`]);
 
     const formattedResults = results.rows.map(row => ({
-      symbol: row.scheme_code.toString(), // Use scheme_code as the "symbol"
+      symbol: row.scheme_code.toString(),
       name: row.scheme_name,
       type: 'Mutual Fund'
     }));
     res.json(formattedResults);
   } catch (err) {
     console.error('Mutual fund search error:', err);
-    res.status(500).send('Server Error');
+    res.json([]);
   }
 };
 
 module.exports = { searchStocks, searchMutualFunds };
+
