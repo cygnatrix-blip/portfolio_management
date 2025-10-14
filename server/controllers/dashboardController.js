@@ -11,6 +11,17 @@ const getDashboardData = async (req, res) => {
         const navHistoryResult = await db.query('SELECT nav_date, nav_value FROM nav_history ORDER BY nav_date ASC');
         const navHistory = navHistoryResult.rows;
         
+        // --- THIS IS THE NEW, MISSING QUERY ---
+        // Fetch the Nifty 50 historical data from the index_history table
+        const niftyHistoryResult = await db.query(
+            `SELECT price_date AS "date", closing_price AS "price" 
+             FROM index_history 
+             WHERE symbol = 'NIFTY50' 
+             ORDER BY price_date ASC`
+        );
+        const niftyHistory = niftyHistoryResult.rows;
+        // -----------------------------------------
+
         const holdingsResult = await db.query('SELECT * FROM master_holdings WHERE quantity > 0');
         const holdings = holdingsResult.rows;
         let holdingsWithValue = [];
@@ -50,18 +61,18 @@ const getDashboardData = async (req, res) => {
             return { ...client, totalUnits, currentValue };
         });
 
-        // --- NEW: Fetch the 25 most recent asset transactions ---
         const assetTransactionsResult = await db.query(
             'SELECT * FROM asset_transactions ORDER BY transaction_date DESC LIMIT 25'
         );
 
-        // --- Consolidate all data into a single response ---
+        // --- Add the new niftyHistory data to the response ---
         res.json({
             latestNav,
             clients: clientsWithDetails,
             holdings: holdingsWithValue,
             navHistory: navHistory,
-            assetTransactions: assetTransactionsResult.rows, // <-- Add the new data here
+            assetTransactions: assetTransactionsResult.rows,
+            niftyHistory: niftyHistory, // <-- ADD THE NEW DATA HERE
         });
 
     } catch (err) {

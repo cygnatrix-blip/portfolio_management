@@ -72,36 +72,45 @@ const UnifiedTransactionForm = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitStatus({ msg: '', type: '' });
+  e.preventDefault();
+  setSubmitStatus({ msg: '', type: '' });
 
-    try {
-      // The endpoint depends on the transaction type
-      const endpoint = formData.transaction_type === 'buy' ? '/api/transactions/buy' : '/api/transactions/sell';
-      
-      const payload = {
-        // clientId is removed as it's a fund-level transaction
-        ticker: formData.ticker,
-        quantity: parseFloat(formData.quantity),
-        price: parseFloat(formData.price_per_share),
-      };
+  try {
+    const endpoint = '/api/transactions';
+    
+    const quantity = parseFloat(formData.quantity);
+    const pricePerShare = parseFloat(formData.price_per_share);
 
-      await axios.post(`http://localhost:5000${endpoint}`, payload);
-      
-      setSubmitStatus({ msg: 'Transaction recorded successfully!', type: 'success' });
-      // Optionally reset form
-      setFormData({
-        transaction_type: 'buy',
-        ticker: '',
-        quantity: '',
-        price_per_share: '',
-      });
+    const payload = {
+      ticker: formData.ticker,
+      quantity: quantity,
+      price_per_share: pricePerShare,
+      // Adding .trim() as a safeguard against whitespace
+      transaction_type: formData.transaction_type.trim().toUpperCase(),
+      total_value: quantity * pricePerShare,
+    };
 
-    } catch (err) {
-      console.error("Error submitting transaction", err);
-      setSubmitStatus({ msg: 'Failed to record transaction. ' + (err.response?.data?.msg || ''), type: 'error' });
-    }
-  };
+    // CRITICAL DEBUGGING STEP: This will show the exact data being sent.
+    console.log('Sending transaction payload:', payload);
+
+    await axios.post(`http://localhost:5000${endpoint}`, payload);
+    
+    setSubmitStatus({ msg: 'Transaction recorded successfully!', type: 'success' });
+    
+    setFormData({
+      transaction_type: 'buy',
+      ticker: '',
+      quantity: '',
+      price_per_share: '',
+    });
+
+  } catch (err) {
+    console.error("Error submitting transaction", err);
+    const errorMsg = err.response?.data?.msg || 'An unknown error occurred.';
+    console.error("Server responded with:", err.response?.data);
+    setSubmitStatus({ msg: `Failed to record transaction: ${errorMsg}`, type: 'error' });
+  }
+};
 
   return (
     <Paper component="form" onSubmit={handleSubmit} sx={{ p: 3, gap: 2, display: 'flex', flexDirection: 'column' }}>

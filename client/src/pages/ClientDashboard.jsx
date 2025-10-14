@@ -51,13 +51,13 @@ const ClientDashboard = () => {
         };
 
         try {
-            const [clientRes, niftyRes] = await Promise.all([
+            const [clientRes, dashboardRes] = await Promise.all([
                 axios.get('http://localhost:5000/api/portal/me', config),
-                axios.get('http://localhost:5000/api/market/nifty50', config)
+                axios.get('http://localhost:5000/api/dashboard', config)
             ]);
             
             setClientData(clientRes.data);
-            setNiftyData(niftyRes.data);
+            setNiftyData(dashboardRes.data.niftyHistory || []); 
             setError(null);
 
         } catch (error) {
@@ -103,6 +103,8 @@ const ClientDashboard = () => {
         try {
             const niftyMap = new Map();
             filteredNiftyData.forEach(item => {
+                // --- THIS IS THE FINAL FIX ---
+                // Use the correct property names 'date' and 'price' from the API response
                 const date = item.date;
                 if (date) {
                     const dateKey = formatDateKey(date);
@@ -155,7 +157,7 @@ const ClientDashboard = () => {
             return [];
         }
     }, [clientData, niftyData, timePeriod]);
-
+    
     const getCombinedChartData = () => {
         if (!clientData || !clientData.navHistory || !clientData.transactionHistory) return [];
 
