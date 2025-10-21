@@ -11,7 +11,11 @@ import {
     CardContent,
     Button,
     ToggleButtonGroup,
-    ToggleButton
+    ToggleButton,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem
 } from '@mui/material';
 
 // Helper function to format a date to YYYY-MM-DD for reliable matching
@@ -29,14 +33,20 @@ const formatDateKey = (date) => {
 
 const ClientDashboard = () => {
     const [clientData, setClientData] = useState(null);
-    const [niftyData, setNiftyData] = useState([]);
+    const [nifty50Data, setNifty50Data] = useState([]);
+    const [nifty500Data, setNifty500Data] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [refreshCount, setRefreshCount] = useState(0);
     const [timePeriod, setTimePeriod] = useState(null);
+    const [selectedIndex, setSelectedIndex] = useState('nifty50'); // 'nifty50' or 'nifty500'
 
     const handleTimePeriodChange = (event, newPeriod) => {
         setTimePeriod(newPeriod);
+    };
+
+    const handleIndexChange = (event) => {
+        setSelectedIndex(event.target.value);
     };
     
     const fetchAllData = useCallback(async () => {
@@ -57,7 +67,12 @@ const ClientDashboard = () => {
             ]);
             
             setClientData(clientRes.data);
-            setNiftyData(dashboardRes.data.niftyHistory || []); 
+            setNifty50Data(dashboardRes.data.niftyHistory || []);
+            
+            // Fetch Nifty 500 data - you'll need to implement this endpoint
+            // For now, I'll assume it's available in the dashboard response
+            // If not, you'll need to make a separate API call
+            setNifty500Data(dashboardRes.data.nifty500History || []); 
             setError(null);
 
         } catch (error) {
@@ -88,40 +103,50 @@ const ClientDashboard = () => {
         return data.filter(item => new Date(item[dateKey]) >= cutoffDate);
     };
 
+    // Get the selected index data based on user choice
+    const getSelectedIndexData = () => {
+        return selectedIndex === 'nifty50' ? nifty50Data : nifty500Data;
+    };
+
+    // Get the display name for the selected index
+    const getSelectedIndexName = () => {
+        return selectedIndex === 'nifty50' ? 'Nifty 50' : 'Nifty 500';
+    };
+
     const normalizedData = useMemo(() => {
-        if (!clientData || !clientData.navHistory || clientData.navHistory.length < 2 || !niftyData || niftyData.length === 0) {
+        const selectedIndexData = getSelectedIndexData();
+        
+        if (!clientData || !clientData.navHistory || clientData.navHistory.length < 2 || !selectedIndexData || selectedIndexData.length === 0) {
             return [];
         }
 
         const filteredNavHistory = filterDataByTimePeriod(clientData.navHistory, 'nav_date');
-        const filteredNiftyData = filterDataByTimePeriod(niftyData, 'date');
+        const filteredIndexData = filterDataByTimePeriod(selectedIndexData, 'date');
 
-        if (filteredNavHistory.length < 2 || filteredNiftyData.length < 2) {
+        if (filteredNavHistory.length < 2 || filteredIndexData.length < 2) {
              return [];
         }
         
         try {
-            const niftyMap = new Map();
-            filteredNiftyData.forEach(item => {
-                // --- THIS IS THE FINAL FIX ---
-                // Use the correct property names 'date' and 'price' from the API response
+            const indexMap = new Map();
+            filteredIndexData.forEach(item => {
                 const date = item.date;
                 if (date) {
                     const dateKey = formatDateKey(date);
-                    niftyMap.set(dateKey, parseFloat(item.price));
+                    indexMap.set(dateKey, parseFloat(item.price));
                 }
             });
             
             const matchingData = filteredNavHistory
                 .map(navPoint => {
                     const dateKey = formatDateKey(navPoint.nav_date);
-                    const niftyPrice = niftyMap.get(dateKey);
+                    const indexPrice = indexMap.get(dateKey);
                     
-                    if (niftyPrice && !isNaN(niftyPrice)) {
+                    if (indexPrice && !isNaN(indexPrice)) {
                         return { 
                             navDate: navPoint.nav_date, 
                             navValue: parseFloat(navPoint.nav_value), 
-                            niftyPrice, 
+                            indexPrice, 
                             dateKey 
                         };
                     }
@@ -133,7 +158,7 @@ const ClientDashboard = () => {
             if (matchingData.length < 2) return [];
 
             const baseNav = matchingData[0].navValue;
-            const baseNifty = matchingData[0].niftyPrice;
+            const baseIndex = matchingData[0].indexPrice;
 
             return matchingData.map((point) => ({
                 date: new Date(point.navDate).toLocaleDateString('en-IN', { 
@@ -142,13 +167,13 @@ const ClientDashboard = () => {
                     year: '2-digit' 
                 }),
                 fundPerformance: ((point.navValue / baseNav) - 1) * 100,
-                niftyPerformance: ((point.niftyPrice / baseNifty) - 1) * 100,
+                indexPerformance: ((point.indexPrice / baseIndex) - 1) * 100,
                 raw: { 
                     nav: point.navValue, 
-                    nifty: point.niftyPrice, 
+                    index: point.indexPrice, 
                     date: point.dateKey,
                     baseNav,
-                    baseNifty
+                    baseIndex
                 }
             }));
             
@@ -156,7 +181,7 @@ const ClientDashboard = () => {
             console.error('💥 Error calculating normalized data:', error);
             return [];
         }
-    }, [clientData, niftyData, timePeriod]);
+    }, [clientData, nifty50Data, nifty500Data, selectedIndex, timePeriod]);
     
     const getCombinedChartData = () => {
         if (!clientData || !clientData.navHistory || !clientData.transactionHistory) return [];
@@ -185,7 +210,7 @@ const ClientDashboard = () => {
         
         return Array.from(portfolioDataMap.values());
     };
- 
+
     const calculateAbsoluteReturn = () => {
         if (!clientData || !clientData.transactionHistory || clientData.transactionHistory.length === 0) return "N/A";
         let netInvestment = 0;
@@ -236,6 +261,21 @@ const ClientDashboard = () => {
         </ToggleButtonGroup>
     );
 
+    const IndexSelector = ({ value, onChange }) => (
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel id="index-selector-label">Index</InputLabel>
+            <Select
+                labelId="index-selector-label"
+                value={value}
+                label="Index"
+                onChange={onChange}
+            >
+                <MenuItem value="nifty50">Nifty 50</MenuItem>
+                <MenuItem value="nifty500">Nifty 500</MenuItem>
+            </Select>
+        </FormControl>
+    );
+
     const CustomTooltip = ({ active, payload, label }) => {
         if (active && payload && payload.length) {
             const dataPoint = normalizedData.find(item => item.date === label);
@@ -256,7 +296,7 @@ const ClientDashboard = () => {
                                 Your NAV: <strong>₹{dataPoint.raw.nav.toFixed(4)}</strong>
                             </Typography>
                             <Typography variant="body2" style={{ color: '#82ca9d' }}>
-                                Nifty 50: <strong>{dataPoint.raw.nifty.toFixed(2)}</strong>
+                                {getSelectedIndexName()}: <strong>{dataPoint.raw.index.toFixed(2)}</strong>
                             </Typography>
                         </>
                     )}
@@ -304,8 +344,13 @@ const ClientDashboard = () => {
 
             <Paper sx={{ p: { xs: 1, md: 3 }, mb: 4, boxShadow: 3, borderRadius: 2 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-                    <Typography variant="h5" gutterBottom sx={{ color: '#004d40' }}>Performance vs. Nifty 50 (Normalized)</Typography>
-                    <TimePeriodSelector value={timePeriod} onChange={handleTimePeriodChange} />
+                    <Typography variant="h5" gutterBottom sx={{ color: '#004d40' }}>
+                        Performance vs. {getSelectedIndexName()} (Normalized)
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <IndexSelector value={selectedIndex} onChange={handleIndexChange} />
+                        <TimePeriodSelector value={timePeriod} onChange={handleTimePeriodChange} />
+                    </Box>
                 </Box>
                 <Box sx={{ height: 400 }}>
                     {normalizedData.length > 1 ? (
@@ -317,7 +362,7 @@ const ClientDashboard = () => {
                                 <Tooltip content={<CustomTooltip />} />
                                 <Legend />
                                 <Line type="monotone" dataKey="fundPerformance" stroke="#00695c" strokeWidth={2} name="Your Fund" dot={false} />
-                                <Line type="monotone" dataKey="niftyPerformance" stroke="#82ca9d" strokeWidth={2} name="Nifty 50" dot={false} />
+                                <Line type="monotone" dataKey="indexPerformance" stroke="#82ca9d" strokeWidth={2} name={getSelectedIndexName()} dot={false} />
                             </LineChart>
                         </ResponsiveContainer>
                     ) : (
