@@ -4,7 +4,8 @@ const db = require('../config/db');
 // @route   GET /api/dashboard
 const getDashboardData = async (req, res) => {
   try {
-    // ... (all previous queries for NAV, Nifty, etc. remain the same) ...
+    console.log('📊 Fetching dashboard data...');
+    
     const navResult = await db.query(
       'SELECT * FROM nav_history ORDER BY nav_date DESC LIMIT 1'
     );
@@ -15,6 +16,7 @@ const getDashboardData = async (req, res) => {
     );
     const navHistory = navHistoryResult.rows;
 
+    // NIFTY 50 Query
     const niftyHistoryResult = await db.query(
       `SELECT price_date AS "date", closing_price AS "price" 
        FROM index_history 
@@ -22,6 +24,31 @@ const getDashboardData = async (req, res) => {
        ORDER BY price_date ASC`
     );
     const niftyHistory = niftyHistoryResult.rows;
+
+    // NIFTY 500 Query
+    const nifty500HistoryResult = await db.query(
+      `SELECT price_date AS "date", closing_price AS "price" 
+       FROM index_history 
+       WHERE symbol = 'NIFTY500' 
+       ORDER BY price_date ASC`
+    );
+    const nifty500History = nifty500HistoryResult.rows;
+
+    // Enhanced debugging
+    console.log('=== DASHBOARD DATA DEBUG ===');
+    console.log(`📈 NIFTY 50 records: ${niftyHistory.length}`);
+    console.log(`📈 NIFTY 500 records: ${nifty500History.length}`);
+    console.log(`💰 NAV records: ${navHistory.length}`);
+    
+    if (nifty500History.length === 0) {
+      console.warn('⚠️  NIFTY 500 data is empty! Run: node updateIndices.js');
+    }
+    
+    if (latestNav) {
+      console.log(`📅 Latest NAV date: ${latestNav.nav_date}`);
+    }
+    
+    console.log('===========================');
 
     let totalInvestment = 0;
     let absoluteCapitalGain = 0;
@@ -49,15 +76,14 @@ const getDashboardData = async (req, res) => {
       absoluteCapitalPercentage = (absoluteCapitalGain / totalInvestment) * 100;
     }
 
-    // --- HOLDINGS CALCULATION (MODIFIED) ---
+    // Holdings calculation
     const holdingsResult = await db.query(
       'SELECT * FROM master_holdings WHERE quantity > 0'
     );
     const holdings = holdingsResult.rows;
-    let holdingsWithValue = []; // This will be populated
+    let holdingsWithValue = [];
 
     if (latestNav && holdings.length > 0) {
-      // Get the total value from the NAV record
       const totalPortfolioValue = parseFloat(latestNav.total_portfolio_value);
 
       for (const holding of holdings) {
@@ -81,7 +107,6 @@ const getDashboardData = async (req, res) => {
         });
       }
 
-      // --- NEW: Map the array to add percentages ---
       holdingsWithValue = holdingsWithValue.map((holding) => ({
         ...holding,
         percentage:
@@ -89,16 +114,15 @@ const getDashboardData = async (req, res) => {
             ? (holding.value / totalPortfolioValue) * 100
             : 0,
       }));
-      // --- END NEW LOGIC ---
     }
-    // --- END HOLDINGS CALCULATION ---
 
-    // ... (all client calculation logic remains the same) ...
+    // Client calculations
     const clientsResult = await db.query('SELECT * FROM clients ORDER BY name');
     const clients = clientsResult.rows;
     const ledgerResult = await db.query('SELECT * FROM units_ledger');
     const ledgerEntries = ledgerResult.rows;
     const clientUnitHoldings = {};
+    
     for (const entry of ledgerEntries) {
       const clientId = entry.client_id;
       const units = parseFloat(entry.units);
@@ -108,6 +132,7 @@ const getDashboardData = async (req, res) => {
       else if (entry.transaction_type === 'WITHDRAWAL')
         clientUnitHoldings[clientId] -= units;
     }
+    
     const clientsWithDetails = clients.map((client) => {
       const totalUnits = clientUnitHoldings[client.id] || 0;
       const currentValue = latestNav
@@ -120,21 +145,36 @@ const getDashboardData = async (req, res) => {
       'SELECT * FROM asset_transactions ORDER BY transaction_date DESC LIMIT 25'
     );
 
-    // The response now includes holdings with the new 'percentage' field
-    res.json({
+    // Response with both NIFTY 50 and NIFTY 500 data
+    const response = {
       latestNav,
       clients: clientsWithDetails,
-      holdings: holdingsWithValue, // <-- This now has percentages
+      holdings: holdingsWithValue,
       navHistory: navHistory,
       assetTransactions: assetTransactionsResult.rows,
       niftyHistory: niftyHistory,
+      nifty500History: nifty500History,
       totalInvestment: totalInvestment,
       absoluteCapitalGain: absoluteCapitalGain,
       absoluteCapitalPercentage: absoluteCapitalPercentage,
-    });
+      metadata: {
+        nifty50Records: niftyHistory.length,
+        nifty500Records: nifty500History.length,
+        navRecords: navHistory.length,
+        lastUpdated: new Date().toISOString()
+      }
+    };
+
+    console.log('✅ Dashboard data fetched successfully');
+    res.json(response);
+    
   } catch (err) {
-    console.error('DB Error in getDashboardData:', err.message);
-    res.status(500).send('Server Error');
+    console.error('❌ DB Error in getDashboardData:', err.message);
+    res.status(500).json({ 
+      error: 'Server Error',
+      details: err.message,
+      timestamp: new Date().toISOString()
+    });
   }
 };
 
