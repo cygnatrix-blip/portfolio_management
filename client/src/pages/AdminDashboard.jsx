@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+// ... (all imports remain the same) ...
 import {
   PieChart,
   Pie,
@@ -23,6 +24,7 @@ import {
 } from '@mui/material';
 
 const AdminDashboard = () => {
+  // ... (all state and useEffect logic remains the same) ...
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -40,7 +42,9 @@ const AdminDashboard = () => {
     fetchDashboardData();
   }, []);
 
+
   if (loading) {
+    // ... (loading spinner logic) ...
     return (
       <Box
         sx={{
@@ -56,6 +60,7 @@ const AdminDashboard = () => {
   }
 
   if (!dashboardData || !dashboardData.latestNav) {
+    // ... (no data logic) ...
     return (
       <Typography variant="h6" color="text.secondary" sx={{ mt: 4 }}>
         No portfolio data found. Please log a client deposit to begin.
@@ -63,7 +68,16 @@ const AdminDashboard = () => {
     );
   }
 
-  const { latestNav, holdings, navHistory } = dashboardData;
+  const {
+    latestNav,
+    holdings,
+    navHistory,
+    totalInvestment,
+    absoluteCapitalGain,
+    absoluteCapitalPercentage,
+  } = dashboardData;
+
+  // ... (navChartData, hasHoldingsData, MetricCard, COLORS, renderCustomizedLabel logic remains the same) ...
   const navChartData = navHistory.map((historyPoint) => ({
     date: new Date(historyPoint.nav_date).toLocaleDateString('en-IN', {
       month: 'short',
@@ -72,7 +86,8 @@ const AdminDashboard = () => {
     nav: parseFloat(historyPoint.nav_value),
   }));
 
-  const hasHoldingsData = holdings && holdings.length > 0 && holdings.reduce((sum, h) => sum + h.value, 0) > 0;
+  const hasHoldingsData =
+    holdings && holdings.length > 0 && holdings.reduce((sum, h) => sum + h.value, 0) > 0;
 
   const MetricCard = ({ title, value, formatAsCurrency = false }) => (
     <Card sx={{ height: '100%', boxShadow: 3, borderRadius: 2 }}>
@@ -82,8 +97,11 @@ const AdminDashboard = () => {
         </Typography>
         <Typography variant="h5" component="div">
           {formatAsCurrency
-            ? `₹${parseFloat(value).toLocaleString('en-IN')}`
-            : parseFloat(value).toFixed(4)}
+            ? `₹${parseFloat(value).toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`
+            : value}
         </Typography>
       </CardContent>
     </Card>
@@ -125,15 +143,23 @@ const AdminDashboard = () => {
     );
   };
 
+
   const totalPortfolioValue = parseFloat(latestNav.total_portfolio_value);
+
+  const gainLossDisplayValue = `₹${absoluteCapitalGain.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} / ${absoluteCapitalPercentage.toFixed(2)}%`;
+
 
   return (
     <Box sx={{ flexGrow: 1 }}>
+      {/* ... (Dashboard Title and MetricCard Box remain the same) ... */}
       <Typography
         variant="h4"
         gutterBottom
         component="div"
-        sx={{ mb: 4, color: '#004d40' }} // New Heading Color
+        sx={{ mb: 4, color: '#004d40' }}
       >
         Dashboard
       </Typography>
@@ -146,24 +172,43 @@ const AdminDashboard = () => {
           flexDirection: { xs: 'column', sm: 'row' },
         }}
       >
-        <Box sx={{ width: { xs: '100%', sm: '33.33%' } }}>
-          <MetricCard title="Current NAV" value={latestNav.nav_value} />
+        <Box sx={{ width: { xs: '100%', sm: '20%' } }}>
+          <MetricCard
+            title="Current NAV"
+            value={parseFloat(latestNav.nav_value).toFixed(4)}
+          />
         </Box>
-        <Box sx={{ width: { xs: '100%', sm: '33.33%' } }}>
+        <Box sx={{ width: { xs: '100%', sm: '20%' } }}>
           <MetricCard
             title="Total Portfolio Value"
             value={latestNav.total_portfolio_value}
             formatAsCurrency
           />
         </Box>
-        <Box sx={{ width: { xs: '100%', sm: '33.33%' } }}>
+        <Box sx={{ width: { xs: '100%', sm: '20%' } }}>
+          <MetricCard
+            title="Total Investment"
+            value={totalInvestment}
+            formatAsCurrency
+          />
+        </Box>
+        <Box sx={{ width: { xs: '100%', sm: '20%' } }}>
+          <MetricCard
+            title="Absolute Gain/Loss"
+            value={gainLossDisplayValue}
+            formatAsCurrency={false}
+          />
+        </Box>
+        <Box sx={{ width: { xs: '100%', sm: '20%' } }}>
           <MetricCard
             title="Total Units"
-            value={latestNav.total_units_outstanding}
+            value={parseFloat(latestNav.total_units_outstanding).toFixed(4)}
           />
         </Box>
       </Box>
 
+
+      {/* --- PORTFOLIO ALLOCATION (MODIFIED) --- */}
       <Paper
         sx={{ p: { xs: 2, md: 3 }, mb: 4, boxShadow: 3, borderRadius: 2 }}
       >
@@ -171,7 +216,7 @@ const AdminDashboard = () => {
           variant="h5"
           gutterBottom
           component="div"
-          sx={{ color: '#004d40', mb: 3 }} // New Heading Color
+          sx={{ color: '#004d40', mb: 3 }}
         >
           Portfolio Allocation
         </Typography>
@@ -185,6 +230,7 @@ const AdminDashboard = () => {
               gap: 2,
             }}
           >
+            {/* Pie Chart (Unchanged) */}
             <Box sx={{ height: 450, width: { xs: '100%', md: '60%' } }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -212,6 +258,8 @@ const AdminDashboard = () => {
                 </PieChart>
               </ResponsiveContainer>
             </Box>
+
+            {/* Legend/Table (MODIFIED) */}
             <Box sx={{ width: { xs: '100%', md: '40%' } }}>
               <Box
                 sx={{
@@ -223,6 +271,7 @@ const AdminDashboard = () => {
                   pr: 2,
                 }}
               >
+                {/* --- MODIFIED: List Item --- */}
                 {holdings.map((entry, index) => (
                   <Box
                     key={`item-${index}`}
@@ -234,6 +283,7 @@ const AdminDashboard = () => {
                       '&:hover': { backgroundColor: '#f0f0f0' },
                     }}
                   >
+                    {/* Color Swatch */}
                     <Box
                       sx={{
                         width: 16,
@@ -244,27 +294,58 @@ const AdminDashboard = () => {
                         borderRadius: '4px',
                       }}
                     />
+
+                    {/* Container for Name | Pct | Value */}
                     <Box
                       sx={{
                         display: 'flex',
                         justifyContent: 'space-between',
+                        alignItems: 'center', // Vertically align items
                         width: '100%',
                         gap: '12px',
                       }}
                     >
+                      {/* Name */}
                       <Typography variant="body1" noWrap title={entry.name}>
                         {entry.name}
                       </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{ fontWeight: 'bold', flexShrink: 0 }}
+
+                      {/* Container for Pct and Value (for right-alignment) */}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          gap: { xs: 1.5, md: 3 }, // Space between Pct and Value
+                          alignItems: 'center',
+                          flexShrink: 0,
+                        }}
                       >
-                        {`₹${entry.value.toLocaleString('en-IN')}`}
-                      </Typography>
+                        {/* --- NEW: Percentage --- */}
+                        <Typography
+                          variant="body1"
+                          color="text.secondary" // Lighter color
+                          sx={{ width: '50px', textAlign: 'right' }} // Fixed width for alignment
+                        >
+                          {`${entry.percentage.toFixed(1)}%`}
+                        </Typography>
+
+                        {/* Value */}
+                        <Typography
+                          variant="body1"
+                          sx={{
+                            fontWeight: 'bold',
+                            width: '120px', // Fixed width for alignment
+                            textAlign: 'right', // Align numbers to the right
+                          }}
+                        >
+                          {`₹${entry.value.toLocaleString('en-IN')}`}
+                        </Typography>
+                      </Box>
                     </Box>
                   </Box>
                 ))}
               </Box>
+              
+              {/* Total Line (Unchanged) */}
               <hr
                 style={{
                   width: '100%',
@@ -292,6 +373,7 @@ const AdminDashboard = () => {
             </Box>
           </Box>
         ) : (
+          // ... (No data box remains the same) ...
           <Box
             sx={{
               height: 450,
@@ -307,10 +389,12 @@ const AdminDashboard = () => {
         )}
       </Paper>
 
+      {/* ... (Fund Performance Line Chart Paper remains the same) ... */}
       <Paper
         sx={{ p: { xs: 2, md: 3 }, mb: 4, boxShadow: 3, borderRadius: 2 }}
       >
-        <Typography variant="h5" gutterBottom sx={{ color: '#004d40' }}> {/* New Heading Color */}
+        <Typography variant="h5" gutterBottom sx={{ color: '#004d40' }}>
+          {' '}
           Fund Performance (NAV History)
         </Typography>
         <Box sx={{ height: 400, mt: 3 }}>
@@ -332,7 +416,7 @@ const AdminDashboard = () => {
                 <Line
                   type="monotone"
                   dataKey="nav"
-                  stroke="#00695c" // Chart Line Color
+                  stroke="#00695c" 
                   strokeWidth={2}
                   name="NAV"
                   activeDot={{ r: 8 }}
