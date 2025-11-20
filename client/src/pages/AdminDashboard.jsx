@@ -2,13 +2,33 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import { Container, Typography, Box, CircularProgress, Alert, Paper, Grid, useTheme } from '@mui/material';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { 
+  Container, 
+  Typography, 
+  Box, 
+  CircularProgress, 
+  Alert, 
+  Paper, 
+  Grid, 
+  useTheme,
+  Card,
+  CardContent,
+  Avatar,
+  Chip,
+  IconButton,
+  Tooltip,
+  alpha,
+} from '@mui/material';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { DataGrid } from '@mui/x-data-grid';
 import { motion } from 'framer-motion';
 import PeopleIcon from '@mui/icons-material/People';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import PersonIcon from '@mui/icons-material/Person';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import GroupIcon from '@mui/icons-material/Group';
 
 const getAuthToken = () => localStorage.getItem('token');
 
@@ -44,7 +64,7 @@ const StatCard = ({ title, value, icon, color }) => (
         p: 1.5,
         borderRadius: '50%',
         backgroundColor: `${color}.light`,
-        color: `${color}.dark`,
+        color: `${color}.main`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'
@@ -126,7 +146,7 @@ const AdminDashboard = () => {
 
         {/* --- 2. Charts & Tables --- */}
         <Grid container spacing={4}>
-          {/* Pie Chart */}
+          {/* Pie Chart - COMPLETELY REVISED APPROACH */}
           <Grid item xs={12} md={5}>
             <motion.div variants={itemVariants}>
               <Paper 
@@ -134,59 +154,63 @@ const AdminDashboard = () => {
                   p: 3, 
                   height: 450,
                   display: 'flex', 
-                  flexDirection: 'column' // Parent is a flex column
+                  flexDirection: 'column',
+                  alignItems: 'center', // Center everything
+                  justifyContent: 'center', // Center vertically
                 }}
               >
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
                   User Distribution
                 </Typography>
                 
-                {/* --- THIS IS THE FIX --- */}
-                {/* This Box now grows to fill the remaining space */}
+                {/* SOLUTION 1: Use fixed dimensions */}
                 <Box sx={{ 
-                  flex: 1, // <--- Allow it to grow
                   width: '100%', 
-                  minHeight: 0 // <--- The critical fix for recharts
+                  height: 350,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={chartData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={120}
-                        paddingAngle={2}
-                        dataKey="value"
-                        label={({ name, percent }) => 
-                          `${name}: ${(percent * 100).toFixed(0)}%`
-                        }
-                      >
-                        {chartData.map((entry, index) => (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={PIE_COLORS[index % PIE_COLORS.length]} 
-                            stroke={theme.palette.background.paper}
-                            strokeWidth={2}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        formatter={(value) => [`${value} users`, 'Count']}
-                      />
-                      <Legend 
-                        verticalAlign="bottom" 
-                        height={36}
-                        iconType="circle"
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <PieChart width={300} height={300}>
+                    <Pie
+                      data={chartData}
+                      cx={150}
+                      cy={150}
+                      innerRadius={0} // Full pie
+                      outerRadius={120} // Large radius
+                      paddingAngle={2}
+                      dataKey="value"
+                      label={({ name, percent }) => 
+                        `${name}: ${(percent * 100).toFixed(0)}%`
+                      }
+                      labelLine={false}
+                    >
+                      {chartData.map((entry, index) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={PIE_COLORS[index % PIE_COLORS.length]} 
+                          stroke={theme.palette.background.paper}
+                          strokeWidth={2}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value) => [`${value} users`, 'Count']}
+                    />
+                    <Legend 
+                      layout="horizontal"
+                      verticalAlign="bottom"
+                      wrapperStyle={{ 
+                        paddingTop: '20px',
+                      }}
+                    />
+                  </PieChart>
                 </Box>
               </Paper>
             </motion.div>
           </Grid>
 
-          {/* Admin Table (The working version) */}
+          {/* Admin Table (Keep as is) */}
           <Grid item xs={12} md={7}>
             <motion.div variants={itemVariants}>
               <Paper 
@@ -204,8 +228,7 @@ const AdminDashboard = () => {
                 <Box sx={{ 
                   flex: 1, 
                   width: '100%',
-                  minHeight: 0, // <-- Also add here for consistency
-                  // DataGrid specific styling
+                  minHeight: 0,
                   '& .MuiDataGrid-root': {
                     border: 'none',
                   },

@@ -1,23 +1,25 @@
 const express = require('express');
 const router = express.Router();
-
-// Import all three functions from the controller
-const {
-  getHoldings,
-  addOrUpdateHolding,
-  updateNavManually
+const { protect, isInvestor } = require('../middleware/authMiddleware');
+const { 
+    getPortfolios, 
+    createPortfolio, 
+    deletePortfolio 
 } = require('../controllers/portfolioController');
 
-// @route   GET /api/portfolio/holdings
-// @desc    Get all master holdings
-router.get('/holdings', getHoldings);
+// All routes in this file are for INVESTORS ONLY
+router.use(protect, isInvestor);
 
-// @route   POST /api/portfolio/holdings
-// @desc    Add or update a holding
-router.post('/holdings', addOrUpdateHolding);
+// @route   GET /api/portfolios
+// @desc    Get all portfolios for the logged-in investor
+router.get('/', getPortfolios);
 
-// @route   POST /api/portfolio/nav
-// @desc    Manually update the NAV for the day
-router.post('/nav', updateNavManually);
+// @route   POST /api/portfolios
+// @desc    Create a new, initialized portfolio for the logged-in investor
+router.post('/', createPortfolio);
+
+// @route   DELETE /api/portfolios/:id
+// @desc    Delete one of the investor's portfolios
+router.delete('/:id', deletePortfolio);
 
 module.exports = router;

@@ -1,15 +1,29 @@
+// server/routes/transactionRoutes.js
 const express = require('express');
 const router = express.Router();
-// --- Import the new function ---
-const { createTransaction, getAssetTransactions } = require('../controllers/transactionController');
+const { 
+    createTransaction, 
+    getAssetTransactions, 
+    getLedgerTransactions,
+    getAssetTransactionsByTicker,
+    updateAssetTransaction, // <-- NEW
+    updateLedgerTransaction // <-- NEW
+} = require('../controllers/transactionController');
+const { protect, isInvestor } = require('../middleware/authMiddleware');
 
-// @route   POST /api/transactions
-// @desc    Handles all transaction types (Deposit, Withdraw, Buy, Sell)
+// All routes in this file are for INVESTORS ONLY
+router.use(protect, isInvestor);
+
+// Create
 router.post('/', createTransaction);
 
-// --- NEW ROUTE ---
-// @route   GET /api/transactions/assets
-// @desc    Get all asset buy/sell transaction history (with pagination)
-router.get('/assets', getAssetTransactions);
+// Read
+router.get('/:portfolioId', getAssetTransactions);
+router.get('/ledger/:portfolioId', getLedgerTransactions);
+router.get('/:portfolioId/ticker/:ticker', getAssetTransactionsByTicker);
+
+// Update (NEW)
+router.put('/asset/:id', updateAssetTransaction);   // For BUY/SELL
+router.put('/ledger/:id', updateLedgerTransaction); // For DEPOSIT/WITHDRAWAL
 
 module.exports = router;

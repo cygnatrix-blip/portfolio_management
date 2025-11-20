@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
-// We no longer need require('dotenv').config() here, as it's now handled globally in index.js
 
+/**
+ * @desc Protect routes, validate token, and attach user to request
+ */
 const protect = (req, res, next) => {
   let token;
 
@@ -9,16 +11,21 @@ const protect = (req, res, next) => {
     req.headers.authorization.startsWith('Bearer')
   ) {
     try {
+      // 1. Get token from header
       token = req.headers.authorization.split(' ')[1];
 
-      // --- THIS IS THE DEBUGGING LINE ---
-      // It will show us exactly what secret is being used.
-      console.log('Verifying token with secret:', process.env.JWT_SECRET);
-
-      // Verify token using your secret key from the .env file
+      // 2. Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
-      req.client = decoded.client;
+      // 3. --- NEW "SYSTEM B" LOGIC ---
+      // The payload now contains the full 'user' object
+      req.user = decoded.user; // <-- ATTACH USER OBJECT (includes id, role, email, name)
+
+      // 4. Check if token is valid
+      if (!req.user) {
+        return res.status(401).json({ msg: 'Not authorized, token is missing user data' });
+      }
+      
       next();
     } catch (error) {
       console.error('Token verification failed:', error.message);
@@ -31,13 +38,26 @@ const protect = (req, res, next) => {
   }
 };
 
+/**
+ * @desc Middleware to check if user is an admin
+ */
 const isAdmin = (req, res, next) => {
-    if (req.client && req.client.role === 'admin') {
+    if (req.user && req.user.role === 'admin') {
         next();
     } else {
         res.status(403).json({ msg: 'Not authorized as an admin' });
     }
 };
 
-module.exports = { protect, isAdmin };
+/**
+ * @desc Middleware to check if user is an investor
+ */
+const isInvestor = (req, res, next) => {
+    if (req.user && req.user.role === 'investor') {
+        next();
+    } else {
+        res.status(403).json({ msg: 'Not authorized as an investor' });
+    }
+};
 
+module.exports = { protect, isAdmin, isInvestor };

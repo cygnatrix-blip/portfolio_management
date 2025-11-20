@@ -1,147 +1,171 @@
-import { useState } from 'react';
-import { Link, Outlet } from 'react-router-dom'; // Import Outlet
-import { jwtDecode } from 'jwt-decode';
+// client/src/components/Layout.jsx
+import React, { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  AppBar,
-  Toolbar,
-  Typography,
-  IconButton,
-  Drawer,
-  List,
-  CssBaseline,
-  Box,
-  Button,
+  AppBar, Toolbar, Typography, Drawer, List, ListItem, ListItemIcon,
+  ListItemText, CssBaseline, Box, IconButton, ListItemButton, useTheme,
 } from '@mui/material';
-import MenuIcon from '@mui/icons-material/Menu';
-import AdminSidebar from './AdminSidebar';
-import ClientSidebar from './ClientSidebar';
+import {
+  Menu as MenuIcon,
+  ChevronLeft as ChevronLeftIcon,
+  Dashboard as DashboardIcon,
+  People as PeopleIcon,
+  Logout as LogoutIcon,
+  AccountBalanceWallet as AccountBalanceWalletIcon,
+} from '@mui/icons-material';
+import { styled } from '@mui/material/styles';
+import { motion } from 'framer-motion';
+import { getAuth } from '../App'; // Import the auth function
 
 const drawerWidth = 240;
 
-const Layout = () => {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const token = localStorage.getItem('token');
-  let isAdmin = false;
+// --- Admin Links ---
+const adminNavItems = [
+  { text: 'Dashboard', icon: <DashboardIcon />, path: '/admin-dashboard' },
+  { text: 'Manage Investors', icon: <PeopleIcon />, path: '/admin-users' },
+];
 
-  if (token) {
-    try {
-      const decodedToken = jwtDecode(token);
-      isAdmin = decodedToken.client.role === 'admin';
-    } catch (error) {
-      console.error('Invalid token:', error);
-      localStorage.removeItem('token');
-    }
-  }
+// --- Investor Links ---
+const investorNavItems = [
+  { text: 'Overall Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+  { text: 'My Portfolios', icon: <AccountBalanceWalletIcon />, path: '/portfolios' },
+];
 
-  const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen);
-  };
+const Main = styled(motion.main, { shouldForwardProp: (prop) => prop !== 'open' })(
+  ({ theme, open }) => ({
+    flexGrow: 1,
+    padding: theme.spacing(3),
+    transition: theme.transitions.create('margin', {
+      easing: theme.transitions.easing.sharp,
+      duration: theme.transitions.duration.leavingScreen,
+    }),
+    marginLeft: `-${drawerWidth}px`,
+    ...(open && {
+      transition: theme.transitions.create('margin', {
+        easing: theme.transitions.easing.easeOut,
+        duration: theme.transitions.duration.enteringScreen,
+      }),
+      marginLeft: 0,
+    }),
+  }),
+);
+
+const AppBarStyled = styled(AppBar, {
+  shouldForwardProp: (prop) => prop !== 'open',
+})(({ theme, open }) => ({
+  transition: theme.transitions.create(['margin', 'width'], {
+    easing: theme.transitions.easing.sharp,
+    duration: theme.transitions.duration.leavingScreen,
+  }),
+  // Use theme colors
+  backgroundColor: theme.palette.background.paper,
+  color: theme.palette.text.primary,
+  boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)',
+  ...(open && {
+    width: `calc(100% - ${drawerWidth}px)`,
+    marginLeft: `${drawerWidth}px`,
+    transition: theme.transitions.create(['margin', 'width'], {
+      easing: theme.transitions.easing.easeOut,
+      duration: theme.transitions.duration.enteringScreen,
+    }),
+  }),
+}));
+
+const DrawerHeader = styled('div')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  padding: theme.spacing(0, 1),
+  ...theme.mixins.toolbar,
+  justifyContent: 'flex-end',
+}));
+
+export default function Layout({ children }) {
+  const theme = useTheme();
+  const [open, setOpen] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = getAuth();
+
+  const handleDrawerOpen = () => setOpen(true);
+  const handleDrawerClose = () => setOpen(false);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
-    window.location.reload();
+    window.location.href = '/login'; // Full reload to clear all state
   };
 
-  const drawerContent = (
-    <div>
-      <Toolbar />
-      <List sx={{ color: '#ffffff' }}>
-        {isAdmin ? <AdminSidebar /> : <ClientSidebar />}
-      </List>
-    </div>
-  );
+  const isAdmin = user?.role === 'admin';
+  const navItems = isAdmin ? adminNavItems : investorNavItems;
 
   return (
     <Box sx={{ display: 'flex' }}>
       <CssBaseline />
-      <AppBar
-        position="fixed"
-        sx={{
-          zIndex: (theme) => theme.zIndex.drawer + 1,
-          backgroundColor: '#00695c',
-        }}
-      >
+      <AppBarStyled position="fixed" open={open} elevation={0}>
         <Toolbar>
           <IconButton
             color="inherit"
             aria-label="open drawer"
+            onClick={handleDrawerOpen}
             edge="start"
-            onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { sm: 'none' } }}
+            sx={{ mr: 2, ...(open && { display: 'none' }) }}
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            <Link to="/" style={{ textDecoration: 'none', color: 'white' }}>
-              {isAdmin ? 'Admin Portal' : 'Client Portal'}
-            </Link>
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
+            {isAdmin ? 'Admin Portal' : 'Investor Dashboard'}
           </Typography>
-          <Button color="inherit" onClick={handleLogout}>
-            Logout
-          </Button>
+          <Typography variant="body1" sx={{ mr: 2 }}>
+            Welcome, {user?.name}
+          </Typography>
+          <IconButton color="inherit" onClick={handleLogout} title="Logout">
+            <LogoutIcon />
+          </IconButton>
         </Toolbar>
-      </AppBar>
-      <Box
-        component="nav"
-        sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
-        aria-label="mailbox folders"
-      >
-        <Drawer
-          variant="temporary"
-          open={mobileOpen}
-          onClose={handleDrawerToggle}
-          ModalProps={{ keepMounted: true }}
-          sx={{
-            display: { xs: 'block', sm: 'none' },
-            '& .MuiDrawer-paper': {
-              boxSizing: 'border-box',
-              width: drawerWidth,
-              backgroundColor: '#004d40',
-              color: '#fff',
-              '& .MuiListItemButton-root:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-              },
-              '& .MuiListItemIcon-root': { color: 'inherit' },
-            },
-          }}
-        >
-          {drawerContent}
-        </Drawer>
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: 'none', sm: 'block' },
-            '& .MuiDrawer-paper': {
-              boxSizing: 'border-box',
-              width: drawerWidth,
-              backgroundColor: '#004d40',
-              color: '#fff',
-              '& .MuiListItemButton-root:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-              },
-              '& .MuiListItemIcon-root': { color: 'inherit' },
-            },
-          }}
-          open
-        >
-          {drawerContent}
-        </Drawer>
-      </Box>
-      <Box
-        component="main"
+      </AppBarStyled>
+      <Drawer
         sx={{
-          flexGrow: 1,
-          p: 3,
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          backgroundColor: '#e8f5e9',
-          minHeight: '100vh',
+          width: drawerWidth,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: drawerWidth,
+            boxSizing: 'border-box',
+          },
         }}
+        variant="persistent"
+        anchor="left"
+        open={open}
       >
-        <Toolbar />
-        <Outlet /> {/* Renders the matched child route */}
-      </Box>
+        <DrawerHeader sx={{ justifyContent: 'space-between', px: 2.5 }}>
+          <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+            Portfolio Manager
+          </Typography>
+          <IconButton onClick={handleDrawerClose}>
+            <ChevronLeftIcon sx={{ color: 'white' }} />
+          </IconButton>
+        </DrawerHeader>
+        <List>
+          {navItems.map((item) => (
+            <ListItem key={item.text} disablePadding>
+              <ListItemButton
+                selected={location.pathname === item.path}
+                onClick={() => navigate(item.path)}
+              >
+                <ListItemIcon>{item.icon}</ListItemIcon>
+                <ListItemText primary={item.text} />
+              </ListItemButton>
+            </ListItem>
+          ))}
+        </List>
+      </Drawer>
+      <Main 
+        open={open}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <DrawerHeader />
+        {children}
+      </Main>
     </Box>
   );
-};
-
-export default Layout;
+}

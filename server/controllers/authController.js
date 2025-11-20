@@ -1,83 +1,90 @@
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
 
-// @desc    Register a new client
-// @route   POST /api/auth/register
-const registerClient = async (req, res) => {
-  const { name, email, password } = req.body;
+/**
+ * @desc    Helper function to generate a new JWT
+ */
+const generateToken = (user) => {
+  // Create a payload with only the necessary, non-sensitive user info
+  const userPayload = { ...user };
+  delete userPayload.password; // Never include password in token
 
-  try {
-    // Check if user already exists
-    const userExists = await db.query('SELECT * FROM clients WHERE email = $1', [email]);
-    if (userExists.rows.length > 0) {
-      return res.status(400).json({ msg: 'Client with that email already exists' });
-    }
-
-    // Hash the password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Save new client to database. The 'role' column has a default value of 'client'
-    // so we don't need to specify it here.
-    const sql = 'INSERT INTO clients (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email, role';
-    const { rows } = await db.query(sql, [name, email, hashedPassword]);
-    
-    res.status(201).json(rows[0]);
-
-  } catch (err) {
-    console.error('DB Error in registerClient:', err.message);
-    res.status(500).send('Server Error');
-  }
+  return jwt.sign(
+    { user: userPayload }, // <-- The new payload
+    process.env.JWT_SECRET, 
+    { expiresIn: '30d' } // Longer expiry for production
+  );
 };
 
-// @desc    Authenticate client & get token
-// @route   POST /api/auth/login
-const loginClient = async (req, res) => {
+/**
+ * @desc    Authenticate user (Admin or Investor) & get token
+ * @route   POST /api/auth/login
+ */
+const loginUser = async (req, res) => {
     const { email, password } = req.body;
     try {
-        // --- THIS IS THE FIRST CHANGE ---
-        // The query now also fetches the 'role' column
-        const { rows } = await db.query('SELECT * FROM clients WHERE email = $1', [email]);
+        // 1. Find user by email
+        const { rows } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
         if (rows.length === 0) {
             return res.status(400).json({ msg: 'Invalid credentials' });
         }
-        const client = rows[0];
+        const user = rows[0];
 
-        // Check if password matches
-        const isMatch = await bcrypt.compare(password, client.password);
+        // 2. Check password
+        const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(400).json({ msg: 'Invalid credentials' });
         }
 
-        // --- THIS IS THE SECOND CHANGE ---
-        // The JWT payload now includes the client's role from the database
-        const payload = {
-            client: {
-                id: client.id,
-                role: client.role // Include the role in the token
-            },
-        };
+        // 3. Generate the token
+        const token = generateToken(user);
 
-        // Sign and return the token
-        jwt.sign(
-            payload,
-            process.env.JWT_SECRET,
-            { expiresIn: '5h' },
-            (err, token) => {
-                if (err) throw err;
-                res.json({ token });
-            }
-        );
+        // 4. Send response
+        delete user.password;
+        res.json({ token, user });
+
     } catch (err) {
-        console.error('Server Error in loginClient:', err.message);
+        console.error('Server Error in loginUser:', err.message);
         res.status(500).send('Server Error');
     }
 };
 
+/**
+ * @desc    Register a new investor (e.g., public sign-up)
+ * @route   POST /api/auth/register
+ */
+const registerUser = async (req, res) => {
+  const { name, email, password } = req.body;
+
+  try {
+    const userExists = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userExists.rows.length > 0) {
+      return res.status(400).json({ msg: 'User with that email already exists' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create new user with default 'investor' role
+    const sql = 'INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING id, name, email, role';
+    const { rows } = await db.query(sql, [name, email, hashedPassword, 'investor']);
+    
+    const user = rows[0];
+
+    // Log them in immediately by issuing a token
+    const token = generateToken(user);
+    
+    res.status(201).json({ token, user });
+
+  } catch (err) {
+    console.error('DB Error in registerUser:', err.message);
+    res.status(500).send('Server Error');
+  }
+};
+
 
 module.exports = {
-  registerClient,
-  loginClient,
+  registerUser,
+  loginUser,
 };

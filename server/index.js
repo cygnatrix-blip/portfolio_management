@@ -4,18 +4,20 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
-const { updateAllEodPrices } = require('./services/eodUpdateService');
-const { updateAllIndices } = require('./services/updateIndicesService');
+const { updateAllEodPrices } = require('./services/eodUpdateService'); // Will need refactoring
+const { updateAllIndices } = require('./services/updateIndicesService'); // Will need refactoring
 
 // Import all active route handlers
-const portfolioRoutes = require('./routes/portfolioRoutes');
-const clientRoutes = require('./routes/clientRoutes');
-const dashboardRoutes = require('./routes/dashboardRoutes');
 const authRoutes = require('./routes/authRoutes');
-const clientPortalRoutes = require('./routes/clientPortalRoutes');
-const transactionRoutes = require('./routes/transactionRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const portfolioRoutes = require('./routes/portfolioRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const transactionRoutes = require('./routes/transactionRoutes');
 const assetRoutes = require('./routes/assetRoutes');
+const portfolioMgmtRoutes = require('./routes/portfolioMgmtRoutes');
+const marketRoutes = require('./routes/marketRoutes');
+const priceRoutes = require('./routes/priceRoutes');
+
 
 const app = express();
 
@@ -23,15 +25,24 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Define All API Routes
-app.use('/api/portfolio', portfolioRoutes);
-app.use('/api/clients', clientRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+// --- NEW "SYSTEM B" API ROUTES ---
+// Authentication (login/register)
 app.use('/api/auth', authRoutes);
-app.use('/api/portal', clientPortalRoutes);
-app.use('/api/transactions', transactionRoutes);
+// Admin User Management (Create/Delete/Reset Investors)
 app.use('/api/admin', adminRoutes);
+// Investor's main portfolio list (create, delete, list)
+app.use('/api/portfolios', portfolioRoutes);
+// Investor Dashboards (overall and specific)
+app.use('/api/dashboard', dashboardRoutes);
+// Portfolio-specific management (holdings, manual NAV calc)
+app.use('/api/portfolio-mgmt', portfolioMgmtRoutes);
+// All transactions (Buy, Sell, Deposit, Withdraw)
+app.use('/api/transactions', transactionRoutes);
+// Global asset/market searching
 app.use('/api/assets', assetRoutes);
+app.use('/api/market', marketRoutes);
+app.use('/api/prices', priceRoutes);
+
 
 // Simple test route to confirm the server is running
 app.get('/', (req, res) => res.send('API is Running!'));
@@ -43,112 +54,42 @@ app.listen(PORT, () => {
   console.log('⏰ Scheduling automated tasks...');
 });
 
-// --- AUTOMATION SCHEDULING ---
+// --- AUTOMATION SCHEDULING (NEEDS REFACTORING FOR SYSTEM B) ---
+// These cron jobs will need to be updated to loop through
+// *every* portfolio from the 'portfolios' table and
+// run the calculations for each one.
 
-// Schedule the EOD update to run at 8:00 PM IST every weekday (Mon-Fri)
-console.log('📅 Scheduling daily EOD price update for 8:00 PM IST (Mon-Fri)');
-cron.schedule('0 20 * * 1-5', async () => {
-  console.log('--- Triggering Scheduled EOD Price Update ---');
+console.log('✅ Scheduling daily tasks...');
+
+// 2. Schedule the EOD price update for 8:00 PM IST (20:00)
+// This runs Monday to Friday
+console.log('   -> EOD Price Update @ 8:00 PM IST (Mon-Fri)');
+cron.schedule('17 20 * * 1-5', async () => {
+  console.log('--- [CRON] Triggering Scheduled EOD Price Update ---');
   try {
-    await updateAllEodPrices();
-    console.log('✅ Scheduled EOD Price Update Complete');
-  } catch (error) {
-    console.error('❌ Error in scheduled EOD update:', error);
+    // This now calls your fixed service that updates ALL portfolios
+    await updateAllEodPrices(); 
+    console.log('--- [CRON] EOD Price Update Completed ---');
+  } catch (err) {
+    console.error('--- [CRON] EOD Price Update FAILED ---', err);
   }
 }, {
   scheduled: true,
   timezone: "Asia/Kolkata"
 });
 
-// Schedule the indices update to run at 8:30 PM IST every weekday (Mon-Fri)
-console.log('📅 Scheduling daily indices update for 8:30 PM IST (Mon-Fri)');
-cron.schedule('30 20 * * 1-5', async () => {
-  console.log('--- Triggering Scheduled Indices Update ---');
+// 3. Schedule the Index (Nifty) update for 8:05 PM IST (Mon-Fri)
+console.log('   -> Index History Update @ 8:05 PM IST (Mon-Fri)');
+cron.schedule('16 20 * * 1-5', async () => {
+  console.log('--- [CRON] Triggering Scheduled Indices Update ---');
   try {
-    const results = await updateAllIndices();
-    console.log('✅ Scheduled Indices Update Complete');
-    console.log('📊 Update Results:', JSON.stringify(results, null, 2));
-  } catch (error) {
-    console.error('❌ Error in scheduled indices update:', error);
+    // This service is global and is fine to run
+    await updateAllIndices();
+    console.log('--- [CRON] Indices Update Completed ---');
+  } catch (err) {
+    console.error('--- [CRON] Indices Update FAILED ---', err);
   }
 }, {
   scheduled: true,
   timezone: "Asia/Kolkata"
-});
-
-// Manual trigger endpoints for testing and admin use
-app.post('/api/admin/trigger-eod-update', async (req, res) => {
-  try {
-    console.log('--- Manual EOD Update Triggered via API ---');
-    await updateAllEodPrices();
-    res.json({ 
-      success: true, 
-      message: 'EOD update completed successfully',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Manual EOD update failed:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'EOD update failed', 
-      details: error.message 
-    });
-  }
-});
-
-app.post('/api/admin/trigger-indices-update', async (req, res) => {
-  try {
-    console.log('--- Manual Indices Update Triggered via API ---');
-    const results = await updateAllIndices();
-    res.json({ 
-      success: true, 
-      message: 'Indices update completed successfully',
-      results: results,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Manual indices update failed:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Indices update failed', 
-      details: error.message 
-    });
-  }
-});
-
-// Health check endpoint that also shows last update status
-app.get('/api/admin/health', async (req, res) => {
-  try {
-    const db = require('./config/db');
-    const indicesCheck = await db.query(`
-      SELECT symbol, COUNT(*) as record_count, 
-             MAX(price_date) as latest_date 
-      FROM index_history 
-      WHERE symbol IN ('NIFTY50', 'NIFTY500')
-      GROUP BY symbol
-    `);
-    
-    const navCheck = await db.query(`
-      SELECT COUNT(*) as nav_count, 
-             MAX(nav_date) as latest_nav_date 
-      FROM nav_history
-    `);
-    
-    res.json({
-      status: 'healthy',
-      server_time: new Date().toISOString(),
-      timezone: 'Asia/Kolkata',
-      indices_data: indicesCheck.rows,
-      nav_data: navCheck.rows[0],
-      scheduled_tasks: {
-        eod_update: 'Mon-Fri 20:55 IST',
-        indices_update: 'Mon-Fri 20:56 IST'
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      error: error.message
-    });
-  }
 });

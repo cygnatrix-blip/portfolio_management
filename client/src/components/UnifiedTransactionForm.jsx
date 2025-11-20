@@ -1,208 +1,236 @@
-import { useState, useEffect } from 'react';
+// client/src/components/UnifiedTransactionForm.jsx
+import React, { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
   TextField,
   Button,
+  Box,
   Typography,
-  Paper,
   CircularProgress,
-  Autocomplete,
+  Alert,
   MenuItem,
+  Select,
   FormControl,
   InputLabel,
-  Select,
+  Grid,
+  InputAdornment,
 } from '@mui/material';
+// --- 1. IMPORT IS NOW UNCOMMENTED ---
+import AssetAutocomplete from './AssetAutocomplete'; 
 
-const UnifiedTransactionForm = () => {
-  const [formData, setFormData] = useState({
-    transaction_type: 'buy',
-    ticker: '',
-    quantity: '',
-    price_per_share: '',
+// Get token from localStorage
+const getAuthToken = () => localStorage.getItem('token');
+
+// Helper to format currency
+const formatCurrency = (value, fractionDigits = 2) =>
+  `₹${parseFloat(value || 0).toLocaleString('en-IN', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  })}`;
+
+// This single function now handles all transaction types
+const createTransaction = async (transactionData) => {
+  const token = getAuthToken();
+  const { data } = await axios.post(
+    '/api/transactions', // <-- The single, unified endpoint
+    transactionData,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+  return data;
+};
+
+const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) => {
+  const queryClient = useQueryClient();
+  const [transactionType, setTransactionType] = useState(defaultType);
+  const [error, setError] = useState(null);
+
+  const [ticker, setTicker] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [price, setPrice] = useState('');
+  const [amount, setAmount] = useState('');
+
+  const isClientTx =
+    transactionType === 'DEPOSIT' || transactionType === 'WITHDRAWAL';
+
+  const mutation = useMutation({
+    mutationFn: createTransaction,
+    onSuccess: () => {
+      // Refetch all relevant data
+      queryClient.invalidateQueries({ queryKey: ['portfolioDetail', String(portfolioId)] });
+      queryClient.invalidateQueries({ queryKey: ['overallDashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['assetTransactions', String(portfolioId)] });
+      queryClient.invalidateQueries({ queryKey: ['clientTransactions', String(portfolioId)] });
+      setError(null);
+      if (onClose) onClose();
+      
+      setTicker('');
+      setQuantity('');
+      setPrice('');
+      setAmount('');
+    },
+    onError: (err) => {
+      console.error('Error submitting transaction:', err);
+      setError(err.response?.data?.message || 'Transaction failed');
+    },
   });
-  
-  const [searchQuery, setSearchQuery] = useState('');
-  const [options, setOptions] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState({ msg: '', type: '' });
 
-  useEffect(() => {
-    const fetchAssets = async () => {
-      if (searchQuery.length < 2) {
-        setOptions([]);
-        return;
-      }
-      setLoading(true);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setError(null);
 
-      try {
-        const [stockRes, mfRes] = await Promise.all([
-          axios.get(`http://localhost:5000/api/assets/search-stocks?query=${searchQuery}`),
-          axios.get(`http://localhost:5000/api/assets/search-mf?query=${searchQuery}`),
-        ]);
-
-        const combinedOptions = [...stockRes.data, ...mfRes.data];
-        setOptions(combinedOptions);
-      } catch (err) {
-        console.error("Asset search failed", err);
-      } finally {
-        setLoading(false);
-      }
+    let payload = {
+      portfolio_id: portfolioId,
+      transaction_type: transactionType,
     };
 
-    const debounce = setTimeout(() => {
-      fetchAssets();
-    }, 500); // Debounce API calls by 500ms
+    try {
+      if (isClientTx) {
+        payload.amount = parseFloat(amount);
+        if (isNaN(payload.amount) || payload.amount <= 0) {
+          setError('Please enter a valid, positive amount.');
+          return;
+        }
+      } else {
+        const q = parseFloat(quantity);
+        const p = parseFloat(price);
+        const total_value = q * p;
 
-    return () => clearTimeout(debounce);
-  }, [searchQuery]);
-
-  const handleFormChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleAutocompleteChange = (event, newValue) => {
-    if (newValue) {
-      // For stocks, we get 'RELIANCE.NS', so we strip the suffix
-      const ticker = newValue.type === 'Stock' 
-        ? newValue.symbol.replace('.NS', '') 
-        : newValue.symbol;
+        if (!ticker) {
+          setError('Please select an asset.');
+          return;
+        }
+        if (isNaN(q) || q <= 0 || isNaN(p) || p <= 0) {
+          setError('Please enter valid, positive numbers for quantity and price.');
+          return;
+        }
+        payload.ticker = ticker.toUpperCase();
+        payload.quantity = q;
+        payload.price_per_share = p;
+        payload.total_value = total_value;
+      }
       
-      setFormData({ ...formData, ticker });
+      console.log("Sending transaction payload:", payload);
+      mutation.mutate(payload);
+
+    } catch (parseError) {
+      console.error('Data parsing error:', parseError);
+      setError('Please check your inputs. All numbers must be valid.');
     }
   };
 
-  const handleSubmit = async (e) => {
-  e.preventDefault();
-  setSubmitStatus({ msg: '', type: '' });
-
-  try {
-    const endpoint = '/api/transactions';
-    
-    const quantity = parseFloat(formData.quantity);
-    const pricePerShare = parseFloat(formData.price_per_share);
-
-    const payload = {
-      ticker: formData.ticker,
-      quantity: quantity,
-      price_per_share: pricePerShare,
-      // Adding .trim() as a safeguard against whitespace
-      transaction_type: formData.transaction_type.trim().toUpperCase(),
-      total_value: quantity * pricePerShare,
-    };
-
-    // CRITICAL DEBUGGING STEP: This will show the exact data being sent.
-    console.log('Sending transaction payload:', payload);
-
-    await axios.post(`http://localhost:5000${endpoint}`, payload);
-    
-    setSubmitStatus({ msg: 'Transaction recorded successfully!', type: 'success' });
-    
-    setFormData({
-      transaction_type: 'buy',
-      ticker: '',
-      quantity: '',
-      price_per_share: '',
-    });
-
-  } catch (err) {
-    console.error("Error submitting transaction", err);
-    const errorMsg = err.response?.data?.msg || 'An unknown error occurred.';
-    console.error("Server responded with:", err.response?.data);
-    setSubmitStatus({ msg: `Failed to record transaction: ${errorMsg}`, type: 'error' });
-  }
-};
-
   return (
-    <Paper component="form" onSubmit={handleSubmit} sx={{ p: 3, gap: 2, display: 'flex', flexDirection: 'column' }}>
-      {submitStatus.msg && (
-        <Typography color={submitStatus.type === 'success' ? 'green' : 'red'}>
-          {submitStatus.msg}
-        </Typography>
-      )}
+    <Box
+      component="form"
+      onSubmit={handleSubmit}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        p: 1, 
+      }}
+    >
+      {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
 
-      {/* Client Selection FormControl has been removed */}
-      
-      <FormControl fullWidth required>
-        <InputLabel>Transaction Type</InputLabel>
+      <FormControl fullWidth>
+        <InputLabel id="tx-type-label">Transaction Type</InputLabel>
         <Select
-          name="transaction_type"
-          value={formData.transaction_type}
+          labelId="tx-type-label"
+          value={transactionType}
           label="Transaction Type"
-          onChange={handleFormChange}
+          onChange={(e) => setTransactionType(e.target.value)}
         >
-          <MenuItem value="buy">Buy</MenuItem>
-          <MenuItem value="sell">Sell</MenuItem>
+          <MenuItem value="BUY">BUY (Stock/MF)</MenuItem>
+          <MenuItem value="SELL">SELL (Stock/MF)</MenuItem>
+          <MenuItem value="DEPOSIT">DEPOSIT (Cash)</MenuItem>
+          <MenuItem value="WITHDRAWAL">WITHDRAWAL (Cash)</MenuItem>
         </Select>
       </FormControl>
-      
-      <Autocomplete
-        options={options}
-        getOptionLabel={(option) => `[${option.type}] ${option.name} (${option.symbol})`}
-        loading={loading}
-        onInputChange={(event, newInputValue) => {
-          setSearchQuery(newInputValue);
-        }}
-        onChange={handleAutocompleteChange}
-        renderInput={(params) => (
+
+      {isClientTx ? (
+        // Fields for DEPOSIT / WITHDRAWAL
+        <TextField
+          label="Amount"
+          type="number"
+          variant="outlined"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          required
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">₹</InputAdornment>
+            ),
+          }}
+        />
+      ) : (
+        // Fields for BUY / SELL
+        <>
+          {/* --- 2. PLACEHOLDER IS NOW COMMENTED OUT ---
           <TextField
-            {...params}
-            label="Search for a Stock or Mutual Fund"
+            label="Ticker Symbol (e.g., RELIANCE.NS)"
             variant="outlined"
-            InputProps={{
-              ...params.InputProps,
-              endAdornment: (
-                <>
-                  {loading ? <CircularProgress color="inherit" size={20} /> : null}
-                  {params.InputProps.endAdornment}
-                </>
-              ),
-            }}
+            value={ticker}
+            onChange={(e) => setTicker(e.target.value)}
+            required
+            fullWidth
           />
-        )}
-      />
+          */}
 
-      <TextField
-        name="ticker"
-        label="Symbol / Scheme Code"
-        value={formData.ticker}
-        onChange={handleFormChange}
-        variant="outlined"
-        fullWidth
-        required
-        InputProps={{
-          readOnly: true,
-        }}
-      />
+          {/* --- 3. AUTOCOMPLETE COMPONENT IS NOW ACTIVE --- */}
+          <AssetAutocomplete 
+            onAssetSelected={(asset) => setTicker(asset ? asset.symbol : '')} 
+          />
 
-      <TextField
-        name="quantity"
-        label="Quantity"
-        type="number"
-        value={formData.quantity}
-        onChange={handleFormChange}
-        variant="outlined"
-        fullWidth
-        required
-      />
-      
-      <TextField
-        name="price_per_share"
-        label="Price Per Share"
-        type="number"
-        value={formData.price_per_share}
-        onChange={handleFormChange}
-        variant="outlined"
-        fullWidth
-        required
-        InputProps={{ inputProps: { step: "0.01" } }}
-      />
+          <Grid container spacing={2}>
+            <Grid item xs={6}>
+              <TextField
+                label="Quantity"
+                type="number"
+                variant="outlined"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                required
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                label="Price per Share"
+                type="number"
+                variant="outlined"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                required
+                fullWidth
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">₹</InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+          </Grid>
+          <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.secondary' }}>
+            Total Value: 
+            {formatCurrency(parseFloat(quantity) * parseFloat(price) || 0)}
+          </Typography>
+        </>
+      )}
 
-      <Button type="submit" variant="contained" color="primary" sx={{ mt: 2 }}>
-        Submit Transaction
+      <Button
+        type="submit"
+        variant="contained"
+        color="primary"
+        disabled={mutation.isPending}
+      >
+        {mutation.isPending ? <CircularProgress size={24} /> : 'Submit Transaction'}
       </Button>
-    </Paper>
+    </Box>
   );
 };
 
 export default UnifiedTransactionForm;
-
