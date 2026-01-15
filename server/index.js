@@ -64,7 +64,7 @@ console.log('✅ Scheduling daily tasks...');
 // 2. Schedule the EOD price update for 8:00 PM IST (20:00)
 // This runs Monday to Friday
 console.log('   -> EOD Price Update @ 8:00 PM IST (Mon-Fri)');
-cron.schedule('17 20 * * 1-5', async () => {
+cron.schedule('00 20 * * 1-5', async () => {
   console.log('--- [CRON] Triggering Scheduled EOD Price Update ---');
   try {
     // This now calls your fixed service that updates ALL portfolios
@@ -80,7 +80,7 @@ cron.schedule('17 20 * * 1-5', async () => {
 
 // 3. Schedule the Index (Nifty) update for 8:05 PM IST (Mon-Fri)
 console.log('   -> Index History Update @ 8:05 PM IST (Mon-Fri)');
-cron.schedule('16 20 * * 1-5', async () => {
+cron.schedule('01 20 * * 1-5', async () => {
   console.log('--- [CRON] Triggering Scheduled Indices Update ---');
   try {
     // This service is global and is fine to run

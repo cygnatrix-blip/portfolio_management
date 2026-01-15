@@ -20,6 +20,8 @@ const EditTransactionModal = ({ open, onClose, transaction, type }) => {
   const [amount, setAmount] = useState('');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
+  const [stopLossPrice, setStopLossPrice] = useState('');
+  const [targetPrice, setTargetPrice] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -29,6 +31,8 @@ const EditTransactionModal = ({ open, onClose, transaction, type }) => {
       } else {
         setQuantity(transaction.quantity);
         setPrice(transaction.price_per_share);
+        setStopLossPrice(transaction.stop_loss_price || '');
+        setTargetPrice(transaction.target_price || '');
       }
     }
   }, [transaction, type]);
@@ -60,7 +64,24 @@ const EditTransactionModal = ({ open, onClose, transaction, type }) => {
       updateMutation.mutate({ amount });
     } else {
       if (parseFloat(quantity) <= 0 || parseFloat(price) <= 0) return setError('Values must be positive');
-      updateMutation.mutate({ quantity, price_per_share: price });
+      const updateData = { quantity, price_per_share: price };
+      // Include stop loss if provided
+      if (stopLossPrice !== '') {
+        updateData.stop_loss_price = parseFloat(stopLossPrice) || null;
+      }
+      // Include target price if provided
+      if (targetPrice !== '') {
+        updateData.target_price = parseFloat(targetPrice) || null;
+      }
+      
+      // Validate: Target price must be greater than stop loss price (only for BUY transactions)
+      if (transaction.transaction_type === 'BUY' && updateData.stop_loss_price && updateData.target_price) {
+        if (updateData.target_price <= updateData.stop_loss_price) {
+          return setError('Target price must be greater than stop loss price.');
+        }
+      }
+      
+      updateMutation.mutate(updateData);
     }
   };
 
@@ -94,6 +115,30 @@ const EditTransactionModal = ({ open, onClose, transaction, type }) => {
               value={price} onChange={(e) => setPrice(e.target.value)}
               InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
             />
+            {/* Stop Loss field for BUY transactions */}
+            {transaction.transaction_type === 'BUY' && (
+              <TextField
+                label="Stop Loss Price (Optional)" 
+                type="number" 
+                fullWidth
+                value={stopLossPrice} 
+                onChange={(e) => setStopLossPrice(e.target.value)}
+                InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                helperText="Alert when price falls below this level"
+              />
+            )}
+            {/* Target Price field for BUY transactions */}
+            {transaction.transaction_type === 'BUY' && (
+              <TextField
+                label="Target Price (Optional)" 
+                type="number" 
+                fullWidth
+                value={targetPrice} 
+                onChange={(e) => setTargetPrice(e.target.value)}
+                InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                helperText="Alert when price reaches this level"
+              />
+            )}
           </>
         )}
 

@@ -1,12 +1,12 @@
 // client/src/components/AssetTransactionsTable.jsx
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
   Box, Typography, CircularProgress, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TablePagination, Alert, IconButton, Tooltip
 } from '@mui/material';
-import { Edit as EditIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import EditTransactionModal from './EditTransactionModal';
 
 const getAuthToken = () => localStorage.getItem('token');
@@ -23,7 +23,15 @@ const fetchTransactions = async (portfolioId, page = 1, limit = 10) => {
   return data;
 };
 
+const deleteTransaction = async (transactionId) => {
+  const token = getAuthToken();
+  await axios.delete(`/api/transactions/asset/${transactionId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+};
+
 const AssetTransactionsTable = ({ portfolioId }) => {
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [selectedTx, setSelectedTx] = useState(null);
@@ -33,6 +41,21 @@ const AssetTransactionsTable = ({ portfolioId }) => {
     queryFn: () => fetchTransactions(portfolioId, page + 1, rowsPerPage),
     keepPreviousData: true,
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteTransaction,
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      alert('Transaction deleted successfully');
+    },
+    onError: (err) => alert(err.response?.data?.message || 'Delete failed')
+  });
+
+  const handleDelete = (id) => {
+    if (window.confirm('Are you sure you want to delete this transaction? This will reverse the asset/cash changes.')) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   const handleChangePage = (event, newPage) => setPage(newPage);
   const handleChangeRowsPerPage = (event) => {
@@ -59,7 +82,7 @@ const AssetTransactionsTable = ({ portfolioId }) => {
               <TableCell align="right">Quantity</TableCell>
               <TableCell align="right">Price</TableCell>
               <TableCell align="right">Total Value</TableCell>
-              <TableCell align="right">Action</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -73,9 +96,14 @@ const AssetTransactionsTable = ({ portfolioId }) => {
                   <TableCell align="right">{formatCurrency(tx.price_per_share)}</TableCell>
                   <TableCell align="right">{formatCurrency(tx.total_value)}</TableCell>
                   <TableCell align="right">
-                     <Tooltip title="Edit Transaction">
-                        <IconButton size="small" onClick={() => setSelectedTx(tx)}>
+                     <Tooltip title="Edit">
+                        <IconButton size="small" onClick={() => setSelectedTx(tx)} color="primary">
                             <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <IconButton size="small" onClick={() => handleDelete(tx.id)} color="error" disabled={deleteMutation.isPending}>
+                            <DeleteIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                   </TableCell>

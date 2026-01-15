@@ -13,6 +13,7 @@ const checkPortfolioOwner = async (dbClient, portfolioId, userId) => {
 
 /**
  * @desc    Helper to Recalculate Portfolio Value & NAV Live
+ * FIX: Uses the latest transaction price if it's newer than the EOD price.
  */
 const recalculatePortfolioValue = async (dbClient, portfolioId) => {
     // 1. Get all holdings (Cash + Stocks)
@@ -29,12 +30,41 @@ const recalculatePortfolioValue = async (dbClient, portfolioId) => {
             totalValue += parseFloat(h.quantity);
         } else {
             const cleanTicker = h.ticker.replace('.NS', '');
-            const { rows: priceRows } = await dbClient.query(
-                'SELECT closing_price FROM daily_prices WHERE ticker = $1 ORDER BY price_date DESC LIMIT 1',
+            
+            // A. Get latest EOD price from DB
+            const priceRes = await dbClient.query(
+                'SELECT closing_price, price_date FROM daily_prices WHERE ticker = $1 ORDER BY price_date DESC LIMIT 1',
                 [cleanTicker]
             );
-            const price = priceRows.length > 0 ? parseFloat(priceRows[0].closing_price) : 0;
-            totalValue += parseFloat(h.quantity) * price;
+            
+            // B. Get latest transaction price for this asset in this portfolio
+            const txRes = await dbClient.query(
+                'SELECT price_per_share, transaction_date FROM asset_transactions WHERE portfolio_id = $1 AND ticker = $2 ORDER BY transaction_date DESC LIMIT 1',
+                [portfolioId, h.ticker]
+            );
+
+            let finalPrice = 0;
+            
+            // Extract Data safely
+            let dbPrice = priceRes.rows.length > 0 ? parseFloat(priceRes.rows[0].closing_price) : 0;
+            // Convert DB date string to comparable format (YYYY-MM-DD)
+            let dbDateStr = priceRes.rows.length > 0 ? new Date(priceRes.rows[0].price_date).toISOString().split('T')[0] : '1970-01-01';
+
+            let txPrice = txRes.rows.length > 0 ? parseFloat(txRes.rows[0].price_per_share) : 0;
+            let txDateStr = txRes.rows.length > 0 ? new Date(txRes.rows[0].transaction_date).toISOString().split('T')[0] : '1970-01-01';
+
+            // C. Compare Dates (String comparison works perfectly for YYYY-MM-DD)
+            // If no EOD price exists (e.g., mutual funds), use transaction price
+            // If EOD price is available and newer than transaction, use EOD price
+            if (dbPrice > 0 && dbDateStr >= txDateStr) {
+                finalPrice = dbPrice;  // Official EOD price if available and recent
+            } else if (txPrice > 0) {
+                finalPrice = txPrice;  // Use purchase price for assets without EOD or if tx is newer
+            } else {
+                finalPrice = 0;  // Only if neither exists
+            }
+
+            totalValue += parseFloat(h.quantity) * finalPrice;
         }
     }
 
@@ -62,25 +92,10 @@ const recalculatePortfolioValue = async (dbClient, portfolioId) => {
     );
 };
 
-// ... (Keep createTransaction as is from previous step, just pasting it here for completeness) ...
 const createTransaction = async (req, res) => {
-    // ... (Use your existing createTransaction code here) ...
-    // For brevity, I am not pasting the huge createTransaction function again 
-    // UNLESS you need it. Assuming you have the working version from our last chat.
-    // If you replaced the file, ensure you put the createTransaction logic back.
-    // (Refer to the previous correct version I sent you for createTransaction)
-     const dbClient = await db.pool.connect(); 
+    const dbClient = await db.pool.connect(); 
     const userId = req.user.id; 
-
-    const { 
-        transaction_type: type,
-        ticker, 
-        quantity, 
-        price_per_share, 
-        total_value, 
-        portfolio_id,
-        amount 
-    } = req.body;
+    const { transaction_type: type, ticker, quantity, price_per_share, total_value, portfolio_id, amount, stop_loss_price, target_price } = req.body;
 
     if (!portfolio_id) return res.status(400).json({ success: false, message: 'portfolio_id is required.' });
     if (!type) return res.status(400).json({ success: false, message: 'transaction_type is required.' });
@@ -124,9 +139,26 @@ const createTransaction = async (req, res) => {
             const parsedQuantity = parseFloat(quantity);
             const parsedPrice = parseFloat(price_per_share);
             const parsedTotalValue = parsedQuantity * parsedPrice;
+            
+            // Validate that the asset has price data (unless it's a mutual fund with numeric ticker)
+            const isNumericTicker = /^[0-9]+$/.test(ticker);
+            if (!isNumericTicker) {
+                const cleanTicker = ticker.replace('.NS', '');
+                const priceCheck = await dbClient.query(
+                    'SELECT COUNT(*) as count FROM daily_prices WHERE ticker = $1 AND price_date >= CURRENT_DATE - INTERVAL \'30 days\'',
+                    [cleanTicker]
+                );
+                if (parseInt(priceCheck.rows[0].count) === 0) {
+                    throw new Error(`Stock "${ticker}" has no recent price data. Please ensure this is a valid NSE stock.`);
+                }
+            }
+            
             const cashResult = await dbClient.query('SELECT quantity FROM master_holdings WHERE ticker = \'CASH\' AND portfolio_id = $1', [portfolioIdInt]);
             if (cashResult.rows.length === 0 || parseFloat(cashResult.rows[0].quantity) < parsedTotalValue) throw new Error('Insufficient cash.');
-            const assetRes = await dbClient.query('INSERT INTO asset_transactions (transaction_type, ticker, quantity, price_per_share, total_value, portfolio_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *', [type, ticker.toUpperCase(), parsedQuantity, parsedPrice, parsedTotalValue, portfolioIdInt]);
+            // Insert with stop_loss_price and target_price
+            const parsedStopLoss = stop_loss_price ? parseFloat(stop_loss_price) : null;
+            const parsedTarget = target_price ? parseFloat(target_price) : null;
+            const assetRes = await dbClient.query('INSERT INTO asset_transactions (transaction_type, ticker, quantity, price_per_share, total_value, portfolio_id, stop_loss_price, target_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *', [type, ticker.toUpperCase(), parsedQuantity, parsedPrice, parsedTotalValue, portfolioIdInt, parsedStopLoss, parsedTarget]);
             resultData = assetRes.rows[0];
             await dbClient.query(`INSERT INTO master_holdings (ticker, quantity, portfolio_id) VALUES ($1, $2, $3) ON CONFLICT (portfolio_id, ticker) DO UPDATE SET quantity = master_holdings.quantity + $2`, [ticker.toUpperCase(), parsedQuantity, portfolioIdInt]);
             await dbClient.query('UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = \'CASH\' AND portfolio_id = $2', [parsedTotalValue, portfolioIdInt]);
@@ -156,21 +188,18 @@ const createTransaction = async (req, res) => {
     }
 };
 
-// --- NEW: Update Asset Transaction (BUY/SELL) ---
+// --- Update Asset Transaction ---
 const updateAssetTransaction = async (req, res) => {
     const transactionId = req.params.id;
     const userId = req.user.id;
-    const { quantity, price_per_share } = req.body; // We only allow editing qty and price for safety
+    const { quantity, price_per_share, stop_loss_price, target_price } = req.body;
 
     const dbClient = await db.pool.connect();
     try {
         await dbClient.query('BEGIN');
-
-        // 1. Get Old Transaction
         const oldTxRes = await dbClient.query('SELECT * FROM asset_transactions WHERE id = $1', [transactionId]);
         if (oldTxRes.rows.length === 0) throw new Error('Transaction not found');
         const oldTx = oldTxRes.rows[0];
-
         await checkPortfolioOwner(dbClient, oldTx.portfolio_id, userId);
 
         const oldQty = parseFloat(oldTx.quantity);
@@ -179,46 +208,42 @@ const updateAssetTransaction = async (req, res) => {
         const newPrice = parseFloat(price_per_share);
         const newTotalVal = newQty * newPrice;
 
-        // 2. REVERSE Old Effect
         if (oldTx.transaction_type === 'BUY') {
-            // Reverse BUY: Remove Asset, Add Cash back
             await dbClient.query('UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = $2 AND portfolio_id = $3', [oldQty, oldTx.ticker, oldTx.portfolio_id]);
             await dbClient.query("UPDATE master_holdings SET quantity = quantity + $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [oldTotalVal, oldTx.portfolio_id]);
         } else {
-            // Reverse SELL: Add Asset back, Remove Cash
             await dbClient.query(`INSERT INTO master_holdings (ticker, quantity, portfolio_id) VALUES ($1, $2, $3) ON CONFLICT (portfolio_id, ticker) DO UPDATE SET quantity = master_holdings.quantity + $2`, [oldTx.ticker, oldQty, oldTx.portfolio_id]);
             await dbClient.query("UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [oldTotalVal, oldTx.portfolio_id]);
         }
 
-        // 3. APPLY New Effect
         if (oldTx.transaction_type === 'BUY') {
-            // Apply New BUY: Add Asset, Deduct Cash
-            // Check Cash first
             const cashRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = 'CASH' AND portfolio_id = $1", [oldTx.portfolio_id]);
             if (parseFloat(cashRes.rows[0].quantity) < newTotalVal) throw new Error('Insufficient cash for this edit.');
-            
             await dbClient.query(`INSERT INTO master_holdings (ticker, quantity, portfolio_id) VALUES ($1, $2, $3) ON CONFLICT (portfolio_id, ticker) DO UPDATE SET quantity = master_holdings.quantity + $2`, [oldTx.ticker, newQty, oldTx.portfolio_id]);
             await dbClient.query("UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [newTotalVal, oldTx.portfolio_id]);
         } else {
-            // Apply New SELL: Deduct Asset, Add Cash
-            // Check Asset Holdings
             const holdRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = $1 AND portfolio_id = $2", [oldTx.ticker, oldTx.portfolio_id]);
             if (parseFloat(holdRes.rows[0].quantity) < newQty) throw new Error('Insufficient asset holdings for this edit.');
-
             await dbClient.query('UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = $2 AND portfolio_id = $3', [newQty, oldTx.ticker, oldTx.portfolio_id]);
             await dbClient.query("UPDATE master_holdings SET quantity = quantity + $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [newTotalVal, oldTx.portfolio_id]);
         }
 
-        // 4. Update Transaction Record
-        await dbClient.query(
-            'UPDATE asset_transactions SET quantity = $1, price_per_share = $2, total_value = $3 WHERE id = $4',
-            [newQty, newPrice, newTotalVal, transactionId]
-        );
-
+        // Update with stop_loss_price and target_price
+        const parsedStopLoss = stop_loss_price !== undefined ? (stop_loss_price ? parseFloat(stop_loss_price) : null) : undefined;
+        const parsedTarget = target_price !== undefined ? (target_price ? parseFloat(target_price) : null) : undefined;
+        
+        if (parsedStopLoss !== undefined && parsedTarget !== undefined) {
+            await dbClient.query('UPDATE asset_transactions SET quantity = $1, price_per_share = $2, total_value = $3, stop_loss_price = $4, target_price = $5 WHERE id = $6', [newQty, newPrice, newTotalVal, parsedStopLoss, parsedTarget, transactionId]);
+        } else if (parsedStopLoss !== undefined) {
+            await dbClient.query('UPDATE asset_transactions SET quantity = $1, price_per_share = $2, total_value = $3, stop_loss_price = $4 WHERE id = $5', [newQty, newPrice, newTotalVal, parsedStopLoss, transactionId]);
+        } else if (parsedTarget !== undefined) {
+            await dbClient.query('UPDATE asset_transactions SET quantity = $1, price_per_share = $2, total_value = $3, target_price = $4 WHERE id = $5', [newQty, newPrice, newTotalVal, parsedTarget, transactionId]);
+        } else {
+            await dbClient.query('UPDATE asset_transactions SET quantity = $1, price_per_share = $2, total_value = $3 WHERE id = $4', [newQty, newPrice, newTotalVal, transactionId]);
+        }
         await recalculatePortfolioValue(dbClient, oldTx.portfolio_id);
         await dbClient.query('COMMIT');
         res.json({ success: true, message: 'Transaction updated successfully' });
-
     } catch (err) {
         await dbClient.query('ROLLBACK');
         console.error('Edit Asset Tx Error:', err.message);
@@ -228,81 +253,47 @@ const updateAssetTransaction = async (req, res) => {
     }
 };
 
-// --- NEW: Update Ledger Transaction (DEPOSIT/WITHDRAWAL) ---
+// --- Update Ledger Transaction ---
 const updateLedgerTransaction = async (req, res) => {
     const transactionId = req.params.id;
     const userId = req.user.id;
-    const { amount } = req.body; // Only allow editing amount
+    const { amount } = req.body;
 
     const dbClient = await db.pool.connect();
     try {
         await dbClient.query('BEGIN');
-
         const oldTxRes = await dbClient.query('SELECT * FROM units_ledger WHERE id = $1', [transactionId]);
         if (oldTxRes.rows.length === 0) throw new Error('Transaction not found');
         const oldTx = oldTxRes.rows[0];
-        const portfolioId = oldTx.portfolio_id;
-
-        await checkPortfolioOwner(dbClient, portfolioId, userId);
+        await checkPortfolioOwner(dbClient, oldTx.portfolio_id, userId);
 
         const oldAmount = parseFloat(oldTx.amount);
         const newAmount = parseFloat(amount);
-        
-        // 1. Find NAV at the time of transaction
-        // We search for a NAV record ON or BEFORE the transaction date
-        const navRes = await dbClient.query(
-            'SELECT nav_value FROM nav_history WHERE portfolio_id = $1 AND nav_date <= $2 ORDER BY nav_date DESC LIMIT 1',
-            [portfolioId, oldTx.transaction_date]
-        );
+        const navRes = await dbClient.query('SELECT nav_value FROM nav_history WHERE portfolio_id = $1 AND nav_date <= $2 ORDER BY nav_date DESC LIMIT 1', [oldTx.portfolio_id, oldTx.transaction_date]);
         const historicalNAV = navRes.rows.length > 0 ? parseFloat(navRes.rows[0].nav_value) : 10.00;
-
         const newUnits = newAmount / historicalNAV;
         const oldUnits = parseFloat(oldTx.units);
 
-        // 2. REVERSE Old Effect & APPLY New Effect (Differential)
-        // It's safer to calculate the diff
-        
         if (oldTx.transaction_type === 'DEPOSIT') {
-            // Net change in Cash and Units
             const cashDiff = newAmount - oldAmount; 
-            const unitsDiff = newUnits - oldUnits;
-            
-            // Check if removing cash would go negative
             if (cashDiff < 0) {
-                 const cashRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = 'CASH' AND portfolio_id = $1", [portfolioId]);
+                 const cashRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = 'CASH' AND portfolio_id = $1", [oldTx.portfolio_id]);
                  if (parseFloat(cashRes.rows[0].quantity) < Math.abs(cashDiff)) throw new Error('Insufficient cash balance to reduce deposit amount.');
             }
-
-            await dbClient.query("UPDATE master_holdings SET quantity = quantity + $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [cashDiff, portfolioId]);
-            
-            // We don't update master holdings for units (units are derived), but we update ledger
+            await dbClient.query("UPDATE master_holdings SET quantity = quantity + $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [cashDiff, oldTx.portfolio_id]);
         } else {
-            // WITHDRAWAL
-            const cashDiff = newAmount - oldAmount; // If new is higher, we withdraw MORE (Cash goes down)
-            const unitsDiff = newUnits - oldUnits;
-
-             // If we are increasing withdrawal, check cash availability
+            const cashDiff = newAmount - oldAmount; 
             if (cashDiff > 0) {
-                 const cashRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = 'CASH' AND portfolio_id = $1", [portfolioId]);
+                 const cashRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = 'CASH' AND portfolio_id = $1", [oldTx.portfolio_id]);
                  if (parseFloat(cashRes.rows[0].quantity) < cashDiff) throw new Error('Insufficient cash balance to increase withdrawal.');
             }
-            
-            await dbClient.query("UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [cashDiff, portfolioId]);
+            await dbClient.query("UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [cashDiff, oldTx.portfolio_id]);
         }
 
-        // 3. Update Ledger Record
-        await dbClient.query(
-            'UPDATE units_ledger SET amount = $1, units = $2 WHERE id = $3',
-            [newAmount, newUnits, transactionId]
-        );
-
-        // Note: We do NOT update `nav_history` total_units here for past dates because that would require
-        // replaying the whole history. We update the *current* live value via recalculate.
-        await recalculatePortfolioValue(dbClient, portfolioId);
-        
+        await dbClient.query('UPDATE units_ledger SET amount = $1, units = $2 WHERE id = $3', [newAmount, newUnits, transactionId]);
+        await recalculatePortfolioValue(dbClient, oldTx.portfolio_id);
         await dbClient.query('COMMIT');
         res.json({ success: true, message: 'Transaction updated successfully' });
-
     } catch (err) {
         await dbClient.query('ROLLBACK');
         console.error('Edit Ledger Tx Error:', err.message);
@@ -312,7 +303,92 @@ const updateLedgerTransaction = async (req, res) => {
     }
 };
 
-const getAssetTransactions = async (req, res) => { /* ... keep existing code ... */
+// --- NEW: DELETE Asset Transaction ---
+const deleteAssetTransaction = async (req, res) => {
+    const transactionId = req.params.id;
+    const userId = req.user.id;
+
+    const dbClient = await db.pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+        const oldTxRes = await dbClient.query('SELECT * FROM asset_transactions WHERE id = $1', [transactionId]);
+        if (oldTxRes.rows.length === 0) throw new Error('Transaction not found');
+        const oldTx = oldTxRes.rows[0];
+        await checkPortfolioOwner(dbClient, oldTx.portfolio_id, userId);
+
+        const qty = parseFloat(oldTx.quantity);
+        const val = parseFloat(oldTx.total_value);
+
+        if (oldTx.transaction_type === 'BUY') {
+            const holdRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = $1 AND portfolio_id = $2", [oldTx.ticker, oldTx.portfolio_id]);
+            if (holdRes.rows.length === 0 || parseFloat(holdRes.rows[0].quantity) < qty) {
+                throw new Error('Cannot delete BUY transaction: Insufficient asset holdings (you may have sold them).');
+            }
+            await dbClient.query('UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = $2 AND portfolio_id = $3', [qty, oldTx.ticker, oldTx.portfolio_id]);
+            await dbClient.query("UPDATE master_holdings SET quantity = quantity + $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [val, oldTx.portfolio_id]);
+        } else {
+            const cashRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = 'CASH' AND portfolio_id = $1", [oldTx.portfolio_id]);
+            if (parseFloat(cashRes.rows[0].quantity) < val) {
+                 throw new Error('Cannot delete SELL transaction: Insufficient cash (you may have spent the proceeds).');
+            }
+            await dbClient.query(`INSERT INTO master_holdings (ticker, quantity, portfolio_id) VALUES ($1, $2, $3) ON CONFLICT (portfolio_id, ticker) DO UPDATE SET quantity = master_holdings.quantity + $2`, [oldTx.ticker, qty, oldTx.portfolio_id]);
+            await dbClient.query("UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [val, oldTx.portfolio_id]);
+        }
+
+        await dbClient.query('DELETE FROM asset_transactions WHERE id = $1', [transactionId]);
+        await recalculatePortfolioValue(dbClient, oldTx.portfolio_id);
+        await dbClient.query('COMMIT');
+        res.json({ success: true, message: 'Transaction deleted successfully' });
+
+    } catch (err) {
+        await dbClient.query('ROLLBACK');
+        console.error('Delete Asset Tx Error:', err.message);
+        res.status(400).json({ success: false, message: err.message });
+    } finally {
+        dbClient.release();
+    }
+};
+
+// --- NEW: DELETE Ledger Transaction ---
+const deleteLedgerTransaction = async (req, res) => {
+    const transactionId = req.params.id;
+    const userId = req.user.id;
+
+    const dbClient = await db.pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+        const oldTxRes = await dbClient.query('SELECT * FROM units_ledger WHERE id = $1', [transactionId]);
+        if (oldTxRes.rows.length === 0) throw new Error('Transaction not found');
+        const oldTx = oldTxRes.rows[0];
+        await checkPortfolioOwner(dbClient, oldTx.portfolio_id, userId);
+
+        const amount = parseFloat(oldTx.amount);
+
+        if (oldTx.transaction_type === 'DEPOSIT') {
+            const cashRes = await dbClient.query("SELECT quantity FROM master_holdings WHERE ticker = 'CASH' AND portfolio_id = $1", [oldTx.portfolio_id]);
+            if (parseFloat(cashRes.rows[0].quantity) < amount) {
+                throw new Error('Cannot delete DEPOSIT: Insufficient cash (you may have invested it).');
+            }
+            await dbClient.query("UPDATE master_holdings SET quantity = quantity - $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [amount, oldTx.portfolio_id]);
+        } else {
+            await dbClient.query("UPDATE master_holdings SET quantity = quantity + $1 WHERE ticker = 'CASH' AND portfolio_id = $2", [amount, oldTx.portfolio_id]);
+        }
+
+        await dbClient.query('DELETE FROM units_ledger WHERE id = $1', [transactionId]);
+        await recalculatePortfolioValue(dbClient, oldTx.portfolio_id);
+        await dbClient.query('COMMIT');
+        res.json({ success: true, message: 'Transaction deleted successfully' });
+
+    } catch (err) {
+        await dbClient.query('ROLLBACK');
+        console.error('Delete Ledger Tx Error:', err.message);
+        res.status(400).json({ success: false, message: err.message });
+    } finally {
+        dbClient.release();
+    }
+};
+
+const getAssetTransactions = async (req, res) => {
     const portfolioId = req.params.portfolioId;
     const userId = req.user.id;
     try {
@@ -333,7 +409,7 @@ const getAssetTransactions = async (req, res) => { /* ... keep existing code ...
     } catch (err) { res.status(500).send(err.message); }
 };
 
-const getLedgerTransactions = async (req, res) => { /* ... keep existing code ... */
+const getLedgerTransactions = async (req, res) => {
     const portfolioId = req.params.portfolioId;
     const userId = req.user.id;
     try {
@@ -354,7 +430,7 @@ const getLedgerTransactions = async (req, res) => { /* ... keep existing code ..
     } catch (err) { res.status(500).send(err.message); }
 };
 
-const getAssetTransactionsByTicker = async (req, res) => { /* ... keep existing code ... */
+const getAssetTransactionsByTicker = async (req, res) => {
     const { portfolioId, ticker } = req.params;
     const userId = req.user.id;
     try {
@@ -371,6 +447,8 @@ module.exports = {
   getAssetTransactions,
   getLedgerTransactions,
   getAssetTransactionsByTicker,
-  updateAssetTransaction, // Exported
-  updateLedgerTransaction // Exported
+  updateAssetTransaction,
+  updateLedgerTransaction,
+  deleteAssetTransaction,
+  deleteLedgerTransaction
 };

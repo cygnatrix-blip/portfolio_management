@@ -48,11 +48,14 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
   const queryClient = useQueryClient();
   const [transactionType, setTransactionType] = useState(defaultType);
   const [error, setError] = useState(null);
+  const [autocompleteKey, setAutocompleteKey] = useState(0);
 
   const [ticker, setTicker] = useState('');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
+  const [stopLossPrice, setStopLossPrice] = useState('');
+  const [targetPrice, setTargetPrice] = useState('');
 
   const isClientTx =
     transactionType === 'DEPOSIT' || transactionType === 'WITHDRAWAL';
@@ -68,10 +71,15 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
       setError(null);
       if (onClose) onClose();
       
+      // Clear all form fields
       setTicker('');
       setQuantity('');
       setPrice('');
       setAmount('');
+      setStopLossPrice('');
+      setTargetPrice('');
+      // Reset autocomplete by changing its key
+      setAutocompleteKey(prev => prev + 1);
     },
     onError: (err) => {
       console.error('Error submitting transaction:', err);
@@ -108,10 +116,33 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
           setError('Please enter valid, positive numbers for quantity and price.');
           return;
         }
+        // Check for fractional quantity (not allowed for stocks/mutual funds)
+        if (!Number.isInteger(q)) {
+          setError('Quantity must be a whole number. Fractional shares are not allowed.');
+          return;
+        }
         payload.ticker = ticker.toUpperCase();
         payload.quantity = q;
         payload.price_per_share = p;
         payload.total_value = total_value;
+        
+        // Add stop loss price for BUY transactions if provided
+        if (transactionType === 'BUY' && stopLossPrice && parseFloat(stopLossPrice) > 0) {
+          payload.stop_loss_price = parseFloat(stopLossPrice);
+        }
+        
+        // Add target price for BUY transactions if provided
+        if (transactionType === 'BUY' && targetPrice && parseFloat(targetPrice) > 0) {
+          payload.target_price = parseFloat(targetPrice);
+        }
+        
+        // Validate: Target price must be greater than stop loss price
+        if (transactionType === 'BUY' && payload.stop_loss_price && payload.target_price) {
+          if (payload.target_price <= payload.stop_loss_price) {
+            setError('Target price must be greater than stop loss price.');
+            return;
+          }
+        }
       }
       
       console.log("Sending transaction payload:", payload);
@@ -123,10 +154,17 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
     }
   };
 
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !mutation.isPending) {
+      handleSubmit(e);
+    }
+  };
+
   return (
     <Box
       component="form"
       onSubmit={handleSubmit}
+      onKeyPress={handleKeyPress}
       sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -160,11 +198,16 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           required
+          inputProps={{ 
+            step: "0.01",
+            min: "0.01"
+          }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">₹</InputAdornment>
             ),
           }}
+          helperText="Decimal amounts allowed"
         />
       ) : (
         // Fields for BUY / SELL
@@ -182,6 +225,7 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
 
           {/* --- 3. AUTOCOMPLETE COMPONENT IS NOW ACTIVE --- */}
           <AssetAutocomplete 
+            key={autocompleteKey}
             onAssetSelected={(asset) => setTicker(asset ? asset.symbol : '')} 
           />
 
@@ -195,6 +239,11 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
                 onChange={(e) => setQuantity(e.target.value)}
                 required
                 fullWidth
+                inputProps={{ 
+                  step: "1",
+                  min: "1"
+                }}
+                helperText="Whole numbers only"
               />
             </Grid>
             <Grid item xs={6}>
@@ -206,6 +255,10 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
                 onChange={(e) => setPrice(e.target.value)}
                 required
                 fullWidth
+                inputProps={{ 
+                  step: "0.01",
+                  min: "0.01"
+                }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">₹</InputAdornment>
@@ -214,6 +267,51 @@ const UnifiedTransactionForm = ({ portfolioId, onClose, defaultType = 'BUY' }) =
               />
             </Grid>
           </Grid>
+          
+          {/* Stop Loss Price field - only for BUY transactions */}
+          {transactionType === 'BUY' && (
+            <TextField
+              label="Stop Loss Price (Optional)"
+              type="number"
+              variant="outlined"
+              value={stopLossPrice}
+              onChange={(e) => setStopLossPrice(e.target.value)}
+              fullWidth
+              inputProps={{ 
+                step: "0.01",
+                min: "0.01"
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">₹</InputAdornment>
+                ),
+              }}
+              helperText="Alert when price falls below this level"
+            />
+          )}
+          
+          {/* Target Price field - only for BUY transactions */}
+          {transactionType === 'BUY' && (
+            <TextField
+              label="Target Price (Optional)"
+              type="number"
+              variant="outlined"
+              value={targetPrice}
+              onChange={(e) => setTargetPrice(e.target.value)}
+              fullWidth
+              inputProps={{ 
+                step: "0.01",
+                min: "0.01"
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">₹</InputAdornment>
+                ),
+              }}
+              helperText="Alert when price reaches this level"
+            />
+          )}
+          
           <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.secondary' }}>
             Total Value: 
             {formatCurrency(parseFloat(quantity) * parseFloat(price) || 0)}

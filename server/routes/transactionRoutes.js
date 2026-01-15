@@ -6,8 +6,10 @@ const {
     getAssetTransactions, 
     getLedgerTransactions,
     getAssetTransactionsByTicker,
-    updateAssetTransaction, // <-- NEW
-    updateLedgerTransaction // <-- NEW
+    updateAssetTransaction,
+    updateLedgerTransaction,
+    deleteAssetTransaction, // NEW
+    deleteLedgerTransaction // NEW
 } = require('../controllers/transactionController');
 const { protect, isInvestor } = require('../middleware/authMiddleware');
 
@@ -22,8 +24,12 @@ router.get('/:portfolioId', getAssetTransactions);
 router.get('/ledger/:portfolioId', getLedgerTransactions);
 router.get('/:portfolioId/ticker/:ticker', getAssetTransactionsByTicker);
 
-// Update (NEW)
-router.put('/asset/:id', updateAssetTransaction);   // For BUY/SELL
-router.put('/ledger/:id', updateLedgerTransaction); // For DEPOSIT/WITHDRAWAL
+// Update
+router.put('/asset/:id', updateAssetTransaction);
+router.put('/ledger/:id', updateLedgerTransaction);
+
+// Delete (NEW)
+router.delete('/asset/:id', deleteAssetTransaction);
+router.delete('/ledger/:id', deleteLedgerTransaction);
 
 module.exports = router;

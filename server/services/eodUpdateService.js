@@ -4,12 +4,18 @@ const AdmZip = require('adm-zip');
 const csv = require('csv-parser');
 const db = require('../config/db');
 const { format, subDays } = require('date-fns');
+const { updateNseSymbols, shouldUpdateSymbols } = require('./updateNseSymbolsService');
 
 const updateAllEodPrices = async (targetDate) => {
   console.log('--- Starting Daily EOD Price Update ---');
   try {
     // First test database connection
     await testDatabaseInsert();
+    
+    // Update NSE symbols (weekly check)
+    if (await shouldUpdateSymbols()) {
+      await updateNseSymbols();
+    }
     
     const dateForUpdate = targetDate ? new Date(targetDate) : getLatestWeekday();
     console.log(`Running EOD update for date: ${format(dateForUpdate, 'yyyy-MM-dd')}`);

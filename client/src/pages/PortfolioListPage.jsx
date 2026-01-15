@@ -136,13 +136,13 @@ const PortfolioListPage = () => {
   })).filter(p => p.value > 0); // Optional: filter out zero value portfolios to clean up chart
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      {queryError && <Alert severity="error" sx={{ mb: 2 }}>Error fetching dashboard: {queryError.response?.data?.msg || queryError.message}</Alert>}
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+    <Container maxWidth="xl" sx={{ py: { xs: 1, sm: 2, md: 3, lg: 4 }, px: { xs: 0.5, sm: 1, md: 2, lg: 3 }, overflow: 'hidden', maxWidth: '100%' }}>
+      {queryError && <Alert severity="error" sx={{ mb: 2, mx: 1 }}>Error fetching dashboard: {queryError.response?.data?.msg || queryError.message}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2, mx: 1 }}>{error}</Alert>}
       
       {/* --- MY PORTFOLIOS SECTION --- */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: { xs: 2, sm: 3 }, flexWrap: 'wrap', gap: { xs: 1, sm: 2 } }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', fontSize: { xs: '1.25rem', sm: '1.75rem', md: '2.125rem' }, mb: 0, wordBreak: 'break-word', maxWidth: { xs: '60%', sm: '70%', md: 'none' } }}>
           My Portfolios
         </Typography>
         <Button
@@ -150,17 +150,19 @@ const PortfolioListPage = () => {
           color="secondary"
           startIcon={<AddIcon />}
           onClick={handleOpenModal}
+          size="small"
+          sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' }, whiteSpace: 'nowrap' }}
         >
           Create Portfolio
         </Button>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
+      <Box sx={{ display: 'flex', gap: { xs: 1, sm: 1.5, md: 2, lg: 3 }, flexDirection: { xs: 'column', md: 'row' }, overflow: 'hidden' }}>
         
         {/* Donut Chart (40% width) */}
-        <Box sx={{ width: { xs: '100%', md: '40%' } }}>
-          <Paper sx={{ p: 3, height: 400, display: 'flex', flexDirection: 'column' }}>
-            <Typography variant="h6" gutterBottom>Portfolio Allocation</Typography>
+        <Box sx={{ width: { xs: '100%', md: '40%' }, minWidth: 0 }}>
+          <Paper sx={{ p: { xs: 1.5, sm: 2, md: 2.5, lg: 3 }, height: { xs: 280, sm: 320, md: 350, lg: 400 }, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '0.9rem', sm: '1rem', md: '1.15rem', lg: '1.25rem' }, mb: 1 }}>Portfolio Allocation</Typography>
             
             <Box sx={{ flex: 1, width: '100%', minHeight: 0 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -188,41 +190,47 @@ const PortfolioListPage = () => {
         </Box>
 
         {/* Portfolio List (60% width) */}
-        <Box sx={{ width: { xs: '100%', md: '60%' } }}>
-          <Paper sx={{ p: 2, height: 400, overflowY: 'auto' }}>
-            <List>
+        <Box sx={{ width: { xs: '100%', md: '60%' }, minWidth: 0 }}>
+          <Paper sx={{ p: { xs: 1, sm: 1.5, md: 2 }, height: { xs: 280, sm: 320, md: 350, lg: 400 }, overflowY: 'auto' }}>
+            <List sx={{ py: 0 }}>
               {portfolios.length > 0 ? portfolios.map((p, index) => (
                 <React.Fragment key={p.portfolio_id}>
                   <ListItem
                     button
                     component={RouterLink} // Use RouterLink for better navigation
                     to={`/portfolio/${p.portfolio_id}`}
+                    sx={{ py: { xs: 1, sm: 1.5 } }}
                     secondaryAction={
                       <MuiTooltip title="Delete Portfolio">
-                        <IconButton edge="end" aria-label="delete" color="error" onClick={(e) => handleDelete(e, p.portfolio_id)}>
-                          <DeleteIcon />
+                        <IconButton edge="end" aria-label="delete" color="error" onClick={(e) => handleDelete(e, p.portfolio_id)} size="small">
+                          <DeleteIcon fontSize="small" />
                         </IconButton>
                       </MuiTooltip>
                     }
                   >
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: COLORS[index % COLORS.length] }}>
-                        <AssessmentIcon />
+                    <ListItemAvatar sx={{ minWidth: { xs: 40, sm: 56 } }}>
+                      <Avatar sx={{ bgcolor: COLORS[index % COLORS.length], width: { xs: 32, sm: 40 }, height: { xs: 32, sm: 40 } }}>
+                        <AssessmentIcon fontSize="small" />
                       </Avatar>
                     </ListItemAvatar>
                     <ListItemText
                       primary={
-                        <Typography variant="h6">{p.name}</Typography>
+                        <Typography variant="h6" sx={{ fontSize: { xs: '0.95rem', sm: '1.15rem', md: '1.25rem' } }}>{p.name}</Typography>
                       }
                       secondary={
-                        <Box component="span" sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-                           <Typography variant="body2" component="span">
-                            Value: {formatCurrency(p.currentValue)}
+                        <>
+                          <Box component="span" sx={{ display: 'flex', flexWrap: 'wrap', gap: { xs: 1, sm: 2 }, alignItems: 'center' }}>
+                            <Typography variant="body2" component="span" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                              Value: {formatCurrency(p.currentValue)}
+                            </Typography>
+                            <Typography variant="body2" component="span" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                              (Avg. NAV: {parseFloat(p.avgNav || 0).toFixed(4)})
+                            </Typography>
+                          </Box>
+                          <Typography variant="caption" component="div" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' }, mt: 0.5 }}>
+                            Created: {p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A'}
                           </Typography>
-                          <Typography variant="body2" component="span" color="text.secondary">
-                            (Avg. NAV: {parseFloat(p.avgNav || 0).toFixed(4)})
-                          </Typography>
-                        </Box>
+                        </>
                       }
                     />
                   </ListItem>

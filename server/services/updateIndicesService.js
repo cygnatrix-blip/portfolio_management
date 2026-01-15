@@ -1,14 +1,89 @@
 // services/updateIndicesService.js
-const yahooFinance = require('yahoo-finance2').default;
+const axios = require('axios');
+const csv = require('csv-parser');
+const { format, subDays, addDays, parseISO } = require('date-fns');
 const db = require('../config/db');
+const { Readable } = require('stream');
 
 /**
- * Fetches historical data from Yahoo Finance and stores it in your database.
- * @param {string} yahooSymbol - The symbol Yahoo Finance uses (e.g., '^NSEI')
- * @param {string} dbSymbol - The symbol you use in your DB (e.g., 'NIFTY50')
+ * Map of NSE index names to our database symbols
  */
-const fetchAndStoreIndexData = async (yahooSymbol, dbSymbol) => {
-  console.log(`📊 Starting update for ${dbSymbol} (${yahooSymbol})...`);
+const INDEX_MAPPING = {
+  'Nifty 50': 'NIFTY50',
+  'Nifty 500': 'NIFTY500'
+};
+
+/**
+ * Helper function to delay execution (to avoid rate limiting)
+ */
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Fetch index data from NSE for a specific date
+ * NSE Index Bhavcopy URL: https://archives.nseindia.com/content/indices/ind_close_all_[DDMMYYYY].csv
+ */
+const fetchNseIndexDataForDate = async (dateToFetch) => {
+  const dateStr = format(dateToFetch, 'ddMMyyyy');
+  const url = `https://archives.nseindia.com/content/indices/ind_close_all_${dateStr}.csv`;
+  
+  console.log(`  📥 Fetching NSE index data for ${format(dateToFetch, 'dd-MM-yyyy')}...`);
+  
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/csv,application/csv,text/plain'
+      },
+      timeout: 10000
+    });
+
+    if (!response.data || response.data.length === 0) {
+      return { success: false, reason: 'Empty response', data: [] };
+    }
+
+    // Parse CSV data
+    const results = [];
+    const stream = Readable.from([response.data]);
+    
+    return new Promise((resolve, reject) => {
+      stream
+        .pipe(csv({ 
+          mapHeaders: ({ header }) => header.trim(),
+          skipLines: 0
+        }))
+        .on('data', (row) => {
+          const indexName = row['Index Name']?.trim();
+          const closingValue = row['Closing Index Value']?.trim();
+          
+          if (indexName && closingValue && INDEX_MAPPING[indexName]) {
+            results.push({
+              indexName: indexName,
+              dbSymbol: INDEX_MAPPING[indexName],
+              closingValue: parseFloat(closingValue.replace(/,/g, '')),
+              date: dateToFetch
+            });
+          }
+        })
+        .on('end', () => {
+          resolve({ success: true, data: results, date: dateToFetch });
+        })
+        .on('error', (error) => {
+          reject(error);
+        });
+    });
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return { success: false, reason: 'Data not available (weekend/holiday)', data: [] };
+    }
+    throw error;
+  }
+};
+
+/**
+ * Fetches and stores index data from NSE for a date range
+ */
+const fetchAndStoreIndexData = async (dbSymbol) => {
+  console.log(`📊 Starting update for ${dbSymbol}...`);
   
   try {
     // 1. Find the latest date we have in the DB for this symbol
@@ -20,69 +95,38 @@ const fetchAndStoreIndexData = async (yahooSymbol, dbSymbol) => {
       [dbSymbol]
     );
 
-    let startDate = '2020-01-01'; // Default start date if no data exists
-    let needsUpdate = true;
+    let startDate;
     
     if (lastEntry.rows.length > 0) {
       const lastDate = new Date(lastEntry.rows[0].price_date);
-      const nextDay = new Date(lastDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-      startDate = nextDay.toISOString().split('T')[0];
+      const nextDay = addDays(lastDate, 1);
+      startDate = nextDay;
       
-      // If nextDay is in the future (like on weekends), don't fetch
+      // If nextDay is in the future, don't fetch
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       if (nextDay > today) {
-        console.log(`✅ ${dbSymbol} already up to date. Last data: ${lastDate.toISOString().split('T')[0]}`);
-        needsUpdate = false;
+        console.log(`✅ ${dbSymbol} already up to date. Last data: ${format(lastDate, 'yyyy-MM-dd')}`);
         return { 
           insertedCount: 0, 
           message: 'Already up to date',
-          lastDate: lastDate.toISOString().split('T')[0]
+          lastDate: format(lastDate, 'yyyy-MM-dd')
         };
       }
+    } else {
+      // If no data exists, start from a reasonable date
+      startDate = new Date('2020-01-01');
     }
 
-    if (!needsUpdate) {
-      return { insertedCount: 0, message: 'No update needed' };
-    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endDate = subDays(today, 0); // Up to yesterday or today
 
-    console.log(`🔍 Fetching ${dbSymbol} data from ${startDate}...`);
+    console.log(`🔍 Fetching ${dbSymbol} data from ${format(startDate, 'yyyy-MM-dd')} to ${format(endDate, 'yyyy-MM-dd')}...`);
 
-    // 2. Fetch historical data from Yahoo Finance using chart() method
-    const queryOptions = {
-      period1: startDate,
-      interval: '1d'
-    };
-    
-    let historicalData;
-    try {
-      historicalData = await yahooFinance.chart(yahooSymbol, queryOptions);
-    } catch (yahooError) {
-      console.error(`❌ Yahoo Finance error for ${yahooSymbol}:`, yahooError.message);
-      throw new Error(`Yahoo Finance API error: ${yahooError.message}`);
-    }
-    
-    if (!historicalData || !historicalData.quotes || historicalData.quotes.length === 0) {
-      console.log(`ℹ️  No new data found for ${dbSymbol} from ${startDate}`);
-      return { insertedCount: 0, message: 'No new data available' };
-    }
-
-    // Filter out null quotes and ensure we have valid data
-    const validQuotes = historicalData.quotes.filter(quote => 
-      quote.date && quote.close && !isNaN(quote.close)
-    );
-
-    if (validQuotes.length === 0) {
-      console.log(`⚠️  No valid data points found for ${dbSymbol}`);
-      return { insertedCount: 0, message: 'No valid data points' };
-    }
-
-    console.log(`📥 Retrieved ${validQuotes.length} data points for ${dbSymbol}`);
-
-    // 3. Insert data into database
     let insertedCount = 0;
-    const client = await db.pool.connect(); 
+    let currentDate = new Date(startDate);
+    const client = await db.pool.connect();
     
     try {
       await client.query('BEGIN');
@@ -90,14 +134,43 @@ const fetchAndStoreIndexData = async (yahooSymbol, dbSymbol) => {
       const insertSql = `
         INSERT INTO index_history (symbol, price_date, closing_price)
         VALUES ($1, $2, $3)
-        ON CONFLICT (symbol, price_date) DO NOTHING 
+        ON CONFLICT (symbol, price_date) DO NOTHING
+        RETURNING *
       `;
       
-      for (const quote of validQuotes) {
-        const res = await client.query(insertSql, [dbSymbol, quote.date, quote.close]);
-        if (res.rowCount > 0) {
-          insertedCount++;
+      // Iterate through each date
+      while (currentDate <= endDate) {
+        try {
+          const result = await fetchNseIndexDataForDate(currentDate);
+          
+          if (result.success && result.data.length > 0) {
+            // Find data for our specific index
+            const indexData = result.data.find(d => d.dbSymbol === dbSymbol);
+            
+            if (indexData) {
+              const res = await client.query(insertSql, [
+                dbSymbol,
+                currentDate,
+                indexData.closingValue
+              ]);
+              
+              if (res.rowCount > 0) {
+                insertedCount++;
+                console.log(`  ✅ ${format(currentDate, 'dd-MM-yyyy')}: ${indexData.closingValue}`);
+              }
+            }
+          } else if (result.reason) {
+            console.log(`  ⏭️  ${format(currentDate, 'dd-MM-yyyy')}: ${result.reason}`);
+          }
+          
+          // Add small delay to avoid rate limiting
+          await delay(500);
+          
+        } catch (dateError) {
+          console.log(`  ⚠️  ${format(currentDate, 'dd-MM-yyyy')}: ${dateError.message}`);
         }
+        
+        currentDate = addDays(currentDate, 1);
       }
       
       await client.query('COMMIT');
@@ -107,8 +180,8 @@ const fetchAndStoreIndexData = async (yahooSymbol, dbSymbol) => {
         insertedCount, 
         message: 'Success',
         dataRange: {
-          from: validQuotes[0].date.toISOString().split('T')[0],
-          to: validQuotes[validQuotes.length - 1].date.toISOString().split('T')[0]
+          from: format(startDate, 'yyyy-MM-dd'),
+          to: format(endDate, 'yyyy-MM-dd')
         }
       };
 
@@ -130,12 +203,12 @@ const fetchAndStoreIndexData = async (yahooSymbol, dbSymbol) => {
  * Main function to run the updates for all required indices
  */
 const updateAllIndices = async () => {
-  console.log('--- Starting Index History Update ---');
+  console.log('--- Starting Index History Update (NSE Source) ---');
   const startTime = Date.now();
   
   const results = {
-    nifty50: { success: false, insertedCount: 0, error: null, yahooSymbol: '^NSEI', dbSymbol: 'NIFTY50' },
-    nifty500: { success: false, insertedCount: 0, error: null, yahooSymbol: '^CRSLDX', dbSymbol: 'NIFTY500' },
+    nifty50: { success: false, insertedCount: 0, error: null, source: 'NSE', dbSymbol: 'NIFTY50' },
+    nifty500: { success: false, insertedCount: 0, error: null, source: 'NSE', dbSymbol: 'NIFTY500' },
     timestamp: new Date().toISOString(),
     duration: 0
   };
@@ -144,7 +217,7 @@ const updateAllIndices = async () => {
     // Update Nifty 50
     console.log('\n🟡 Processing NIFTY 50...');
     try {
-      const nifty50Result = await fetchAndStoreIndexData('^NSEI', 'NIFTY50');
+      const nifty50Result = await fetchAndStoreIndexData('NIFTY50');
       results.nifty50.success = true;
       results.nifty50.insertedCount = nifty50Result.insertedCount;
       results.nifty50.message = nifty50Result.message;
@@ -156,10 +229,14 @@ const updateAllIndices = async () => {
       console.error('❌ NIFTY 50 update failed:', error.message);
     }
     
+    // Add delay between index updates
+    console.log('\n⏸️  Waiting 2 seconds before next index...');
+    await delay(2000);
+    
     // Update Nifty 500 
     console.log('\n🟡 Processing NIFTY 500...');
     try {
-      const nifty500Result = await fetchAndStoreIndexData('^CRSLDX', 'NIFTY500');
+      const nifty500Result = await fetchAndStoreIndexData('NIFTY500');
       results.nifty500.success = true;
       results.nifty500.insertedCount = nifty500Result.insertedCount;
       results.nifty500.message = nifty500Result.message;

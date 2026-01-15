@@ -58,10 +58,10 @@ const itemVariants = {
 // Stat Card Component
 const StatCard = ({ title, value, icon, color }) => (
   <motion.div variants={itemVariants}>
-    <Paper sx={{ p: 3, display: 'flex', alignItems: 'center', height: '100%' }}>
+    <Paper sx={{ p: { xs: 2, sm: 2.5, md: 3 }, display: 'flex', alignItems: 'center', height: '100%' }}>
       <Box sx={{ 
-        mr: 2, 
-        p: 1.5,
+        mr: { xs: 1.5, sm: 2 }, 
+        p: { xs: 1, sm: 1.5 },
         borderRadius: '50%',
         backgroundColor: `${color}.light`,
         color: `${color}.main`,
@@ -72,8 +72,8 @@ const StatCard = ({ title, value, icon, color }) => (
         {icon}
       </Box>
       <Box>
-        <Typography color="text.secondary">{title}</Typography>
-        <Typography variant="h4" component="p" sx={{ fontWeight: 'bold' }}>
+        <Typography color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem', md: '1rem' } }}>{title}</Typography>
+        <Typography variant="h4" component="p" sx={{ fontWeight: 'bold', fontSize: { xs: '1.5rem', sm: '1.75rem', md: '2.125rem' } }}>
           {value}
         </Typography>
       </Box>
@@ -125,14 +125,14 @@ const AdminDashboard = () => {
   ];
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Container maxWidth="xl" sx={{ py: { xs: 1, sm: 2, md: 3, lg: 4 }, px: { xs: 0.5, sm: 1, md: 2, lg: 3 }, overflow: 'hidden', maxWidth: '100%' }}>
       <motion.div variants={containerVariants} initial="hidden" animate="visible">
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', mb: 6 }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', mb: { xs: 3, sm: 4, md: 6 }, fontSize: { xs: '1.25rem', sm: '1.75rem', md: '2.125rem' }, wordBreak: 'break-word' }}>
           Admin Dashboard
         </Typography>
 
         {/* --- 1. Stat Cards --- */}
-        <Grid container spacing={3} sx={{ mb: 6 }}>
+        <Grid container spacing={{ xs: 1.5, sm: 2, md: 3 }} sx={{ mb: { xs: 3, sm: 4, md: 6 } }}>
           <Grid item xs={12} sm={6} md={4}>
             <StatCard title="Total Users" value={stats.totalUsers} icon={<PeopleIcon />} color="primary" />
           </Grid>
@@ -145,21 +145,21 @@ const AdminDashboard = () => {
         </Grid>
 
         {/* --- 2. Charts & Tables --- */}
-        <Grid container spacing={4}>
+        <Grid container spacing={{ xs: 2, sm: 3, md: 4 }}>
           {/* Pie Chart - COMPLETELY REVISED APPROACH */}
           <Grid item xs={12} md={5}>
             <motion.div variants={itemVariants}>
               <Paper 
                 sx={{ 
-                  p: 3, 
-                  height: 450,
+                  p: { xs: 2, sm: 2.5, md: 3 }, 
+                  height: { xs: 350, sm: 400, md: 450 },
                   display: 'flex', 
                   flexDirection: 'column',
                   alignItems: 'center', // Center everything
                   justifyContent: 'center', // Center vertically
                 }}
               >
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
+                <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 2, fontSize: { xs: '1rem', sm: '1.15rem', md: '1.25rem' } }}>
                   User Distribution
                 </Typography>
                 

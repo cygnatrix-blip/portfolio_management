@@ -1,14 +1,9 @@
 // server/controllers/dashboardController.js
 const db = require('../config/db');
 
-/**
- * @desc    Get overall dashboard data for all of an investor's portfolios
- * @route   GET /api/dashboard/overall
- */
 const getOverallDashboard = async (req, res) => {
     const userId = req.user.id;
     try {
-        // 1. Get List of User's Portfolios
         const { rows: portfolioList } = await db.query(
             'SELECT id FROM portfolios WHERE user_id = $1', 
             [userId]
@@ -23,7 +18,6 @@ const getOverallDashboard = async (req, res) => {
             });
         }
         
-        // 2. Run All Queries in Parallel
         const statsQuery = `
             WITH PortfolioStats AS (
                 SELECT
@@ -77,7 +71,6 @@ const getOverallDashboard = async (req, res) => {
             statsPromise, navHistoryPromise, ledgerHistoryPromise, nifty50Promise, nifty500Promise
         ]);
 
-        // 3. Process Stats
         const portfolios = statsResult.rows;
         let overallTotalValue = 0;
         let overallTotalInvestment = 0;
@@ -108,9 +101,7 @@ const getOverallDashboard = async (req, res) => {
 
         const overallAbsoluteGain = overallTotalValue - overallTotalInvestment;
         const overallGainPercentage = (overallTotalInvestment > 0) ? (overallAbsoluteGain / overallTotalInvestment) * 100 : 0;
-        
-        // --- NEW CALCULATIONS ---
-        const overallAvgCostNav = (overallTotalUnits > 0) ? (overallTotalInvestment / overallTotalUnits) : 0;
+        const overallAvgNav = (overallTotalUnits > 0) ? (overallTotalInvestment / overallTotalUnits) : 0;
         const overallCurrentNav = (overallTotalUnits > 0) ? (overallTotalValue / overallTotalUnits) : 0;
 
         res.json({
@@ -119,8 +110,8 @@ const getOverallDashboard = async (req, res) => {
                 totalInvestment: overallTotalInvestment,
                 absoluteGain: overallAbsoluteGain,
                 gainPercentage: overallGainPercentage,
-                avgNav: overallAvgCostNav, // Cost basis (10.0048)
-                currentNav: overallCurrentNav // Market value (~10.34)
+                avgNav: overallAvgNav,
+                currentNav: overallCurrentNav
             },
             portfolios: portfoliosWithAvgNav,
             graphData: {
@@ -164,89 +155,212 @@ const getPortfolioDashboard = async (req, res) => {
         const holdingsResult = await db.query('SELECT * FROM master_holdings WHERE quantity > 0 AND portfolio_id = $1', [portfolioId]);
         const holdings = holdingsResult.rows;
         let holdingsWithValue = [];
+
         if (holdings.length > 0) {
             const currentDate = latestNav ? latestNav.nav_date : new Date().toISOString().split('T')[0];
+            
             for (const holding of holdings) {
                 let value = 0;
                 let displayName = holding.ticker;
                 let currentPrice = 0;
                 let avgPurchasePrice = 0;
-                
-                if (holding.ticker === 'CASH') {
-                    value = parseFloat(holding.quantity);
-                    displayName = 'CASH';
-                    currentPrice = 1;
-                    avgPurchasePrice = 1;
-                } else {
-                    const tickerForPrice = holding.ticker.replace('.NS', '');
-                    
-                    // Check if it's a mutual fund (numeric ticker)
-                    if (/^\d+$/.test(tickerForPrice)) {
-                        // It's a mutual fund scheme code, fetch the scheme name
-                        const schemeResult = await db.query(
-                            'SELECT scheme_name FROM mutual_fund_schemes WHERE scheme_code = $1',
-                            [tickerForPrice]
-                        );
-                        if (schemeResult.rows.length > 0) {
-                            displayName = schemeResult.rows[0].scheme_name;
-                        }
-                    }
-                    
-                    // Calculate average purchase price from transactions
-                    const avgPriceResult = await db.query(
-                        `SELECT 
-                            SUM(quantity * price_per_share) / NULLIF(SUM(quantity), 0) as avg_price
-                        FROM asset_transactions 
-                        WHERE ticker = $1 AND portfolio_id = $2 AND transaction_type = 'BUY'`,
-                        [holding.ticker, portfolioId]
+                let gainLossPercentage = 0;
+
+                // Calculate average purchase price from BUY transactions
+                if (holding.ticker !== 'CASH') {
+                    const avgPriceRes = await db.query(
+                        `SELECT SUM(quantity * price_per_share) / NULLIF(SUM(quantity), 0) AS avg_price
+                         FROM asset_transactions
+                         WHERE portfolio_id = $1 AND ticker = $2 AND transaction_type = 'BUY'`,
+                        [portfolioId, holding.ticker]
                     );
-                    if (avgPriceResult.rows.length > 0 && avgPriceResult.rows[0].avg_price) {
-                        avgPurchasePrice = parseFloat(avgPriceResult.rows[0].avg_price);
-                    }
-                    
-                    // Try to get current price from daily_prices table
-                    const priceResult = await db.query(
-                        'SELECT closing_price FROM daily_prices WHERE ticker = $1 AND price_date <= $2 ORDER BY price_date DESC LIMIT 1',
-                        [tickerForPrice, currentDate]
-                    );
-                    
-                    if (priceResult.rows.length > 0) {
-                        // Use the latest available price
-                        currentPrice = parseFloat(priceResult.rows[0].closing_price);
-                        value = parseFloat(holding.quantity) * currentPrice;
-                    } else {
-                        // Fallback: If no price found, use the most recent transaction price for this ticker
-                        const lastTransactionPrice = await db.query(
-                            'SELECT price_per_share FROM asset_transactions WHERE ticker = $1 AND portfolio_id = $2 ORDER BY transaction_date DESC, id DESC LIMIT 1',
-                            [holding.ticker, portfolioId]
-                        );
-                        if (lastTransactionPrice.rows.length > 0) {
-                            currentPrice = parseFloat(lastTransactionPrice.rows[0].price_per_share);
-                            value = parseFloat(holding.quantity) * currentPrice;
-                        }
+                    if (avgPriceRes.rows.length > 0 && avgPriceRes.rows[0].avg_price) {
+                        avgPurchasePrice = parseFloat(avgPriceRes.rows[0].avg_price);
                     }
                 }
-                
+
+                // 1. If CASH
+                if (holding.ticker === 'CASH') {
+                    value = parseFloat(holding.quantity);
+                    currentPrice = 0;
+                    avgPurchasePrice = 0;
+                    gainLossPercentage = 0;
+                } 
+                // 2. If MUTUAL FUND (numeric ticker)
+                else if (/^\d+$/.test(holding.ticker)) {
+                    const mfNameRes = await db.query('SELECT scheme_name FROM mutual_fund_schemes WHERE scheme_code = $1', [holding.ticker]);
+                    if (mfNameRes.rows.length > 0) {
+                        displayName = mfNameRes.rows[0].scheme_name.split(' - ')[0].substring(0, 20) + '...'; 
+                    }
+                    
+                    // Get MF Price - Try EOD price first, fallback to transaction price
+                    const priceRes = await db.query(
+                        'SELECT closing_price, price_date FROM daily_prices WHERE ticker = $1 AND price_date <= $2 ORDER BY price_date DESC LIMIT 1',
+                        [holding.ticker, currentDate]
+                    );
+                    
+                    const txRes = await db.query(
+                        'SELECT price_per_share, transaction_date FROM asset_transactions WHERE portfolio_id = $1 AND ticker = $2 ORDER BY transaction_date DESC LIMIT 1',
+                        [portfolioId, holding.ticker]
+                    );
+
+                    let finalPrice = 0;
+                    let dbPrice = priceRes.rows.length > 0 ? parseFloat(priceRes.rows[0].closing_price) : 0;
+                    let dbDateStr = priceRes.rows.length > 0 ? new Date(priceRes.rows[0].price_date).toISOString().split('T')[0] : '1970-01-01';
+                    
+                    let txPrice = txRes.rows.length > 0 ? parseFloat(txRes.rows[0].price_per_share) : 0;
+                    let txDateStr = txRes.rows.length > 0 ? new Date(txRes.rows[0].transaction_date).toISOString().split('T')[0] : '1970-01-01';
+
+                    // Use EOD price if available and newer, otherwise use transaction price
+                    if (dbDateStr >= txDateStr && dbPrice > 0) {
+                        finalPrice = dbPrice;
+                    } else if (txPrice > 0) {
+                        finalPrice = txPrice;
+                    } else {
+                        finalPrice = dbPrice;
+                    }
+
+                    currentPrice = finalPrice;
+                    value = parseFloat(holding.quantity) * finalPrice;
+                } 
+                // 3. If STOCK (text ticker)
+                else {
+                    const tickerForPrice = holding.ticker.replace('.NS', '');
+                    
+                    // FIX: Smart Price Logic
+                    // A. Get latest EOD price from DB
+                    const priceRes = await db.query(
+                        'SELECT closing_price, price_date FROM daily_prices WHERE ticker = $1 ORDER BY price_date DESC LIMIT 1',
+                        [tickerForPrice]
+                    );
+                    
+                    // B. Get latest transaction price for this asset
+                    const txRes = await db.query(
+                        'SELECT price_per_share, transaction_date FROM asset_transactions WHERE portfolio_id = $1 AND ticker = $2 ORDER BY transaction_date DESC LIMIT 1',
+                        [portfolioId, holding.ticker]
+                    );
+
+                    let finalPrice = 0;
+                    let dbPrice = priceRes.rows.length > 0 ? parseFloat(priceRes.rows[0].closing_price) : 0;
+                    let dbDateStr = priceRes.rows.length > 0 ? new Date(priceRes.rows[0].price_date).toISOString().split('T')[0] : '1970-01-01';
+                    
+                    let txPrice = txRes.rows.length > 0 ? parseFloat(txRes.rows[0].price_per_share) : 0;
+                    let txDateStr = txRes.rows.length > 0 ? new Date(txRes.rows[0].transaction_date).toISOString().split('T')[0] : '1970-01-01';
+
+                    // C. Use Tx Price if newer (or if today)
+                    if (dbDateStr >= txDateStr && dbPrice > 0) {
+                         finalPrice = dbPrice;
+                    } else if (txPrice > 0) {
+                         finalPrice = txPrice;
+                    } else {
+                         finalPrice = dbPrice;
+                    }
+
+                    currentPrice = finalPrice;
+                    value = parseFloat(holding.quantity) * finalPrice;
+                }
+
                 // Calculate gain/loss percentage
-                let gainLossPercentage = 0;
                 if (avgPurchasePrice > 0 && currentPrice > 0) {
                     gainLossPercentage = ((currentPrice - avgPurchasePrice) / avgPurchasePrice) * 100;
                 }
+
+                // Get stop loss price for this holding (from most recent BUY transaction with stop loss)
+                let stopLossPrice = null;
+                let isStopLossTriggered = false;
+                let targetPrice = null;
+                let isTargetReached = false;
                 
+                if (holding.ticker !== 'CASH') {
+                    const stopLossRes = await db.query(
+                        `SELECT stop_loss_price FROM asset_transactions
+                         WHERE portfolio_id = $1 AND ticker = $2 AND transaction_type = 'BUY' AND stop_loss_price IS NOT NULL
+                         ORDER BY transaction_date DESC LIMIT 1`,
+                        [portfolioId, holding.ticker]
+                    );
+                    if (stopLossRes.rows.length > 0 && stopLossRes.rows[0].stop_loss_price) {
+                        stopLossPrice = parseFloat(stopLossRes.rows[0].stop_loss_price);
+                        // Check if stop loss is triggered
+                        if (currentPrice > 0 && currentPrice <= stopLossPrice) {
+                            isStopLossTriggered = true;
+                        }
+                    }
+                    
+                    // Get target price
+                    const targetRes = await db.query(
+                        `SELECT target_price FROM asset_transactions
+                         WHERE portfolio_id = $1 AND ticker = $2 AND transaction_type = 'BUY' AND target_price IS NOT NULL
+                         ORDER BY transaction_date DESC LIMIT 1`,
+                        [portfolioId, holding.ticker]
+                    );
+                    if (targetRes.rows.length > 0 && targetRes.rows[0].target_price) {
+                        targetPrice = parseFloat(targetRes.rows[0].target_price);
+                        // Check if target is reached
+                        if (currentPrice > 0 && currentPrice >= targetPrice) {
+                            isTargetReached = true;
+                        }
+                    }
+                }
+
                 holdingsWithValue.push({ 
-                    name: displayName, 
-                    ticker: holding.ticker, // Keep the original ticker for lookups
-                    value: parseFloat(value.toFixed(2)),
+                    name: displayName,
+                    ticker: holding.ticker,
+                    quantity: parseFloat(holding.quantity),
                     currentPrice: parseFloat(currentPrice.toFixed(2)),
                     avgPurchasePrice: parseFloat(avgPurchasePrice.toFixed(2)),
                     gainLossPercentage: parseFloat(gainLossPercentage.toFixed(2)),
-                    quantity: parseFloat(holding.quantity)
+                    value: parseFloat(value.toFixed(2)),
+                    sector: null, // Will be populated below
+                    stopLossPrice: stopLossPrice ? parseFloat(stopLossPrice.toFixed(2)) : null,
+                    isStopLossTriggered: isStopLossTriggered,
+                    targetPrice: targetPrice ? parseFloat(targetPrice.toFixed(2)) : null,
+                    isTargetReached: isTargetReached
                 });
             }
+
             holdingsWithValue = holdingsWithValue.map((holding) => ({
                 ...holding,
                 percentage: totalPortfolioValue > 0 ? (holding.value / totalPortfolioValue) * 100 : 0,
             }));
+            
+            // Get sector information for stock holdings
+            for (const holding of holdingsWithValue) {
+                if (holding.ticker !== 'CASH' && !/^\d+$/.test(holding.ticker)) {
+                    const cleanTicker = holding.ticker.replace('.NS', '');
+                    const sectorRes = await db.query(
+                        'SELECT sector FROM nse_symbols WHERE ticker = $1',
+                        [cleanTicker]
+                    );
+                    if (sectorRes.rows.length > 0 && sectorRes.rows[0].sector) {
+                        holding.sector = sectorRes.rows[0].sector;
+                    }
+                }
+            }
+        }
+        
+        // Calculate sector-wise allocation
+        const sectorAllocation = {};
+        for (const holding of holdingsWithValue) {
+            let sectorName = 'Others';
+            
+            if (holding.ticker === 'CASH') {
+                sectorName = 'Cash & Equivalents';
+            } else if (/^\d+$/.test(holding.ticker)) {
+                sectorName = 'Mutual Funds';
+            } else if (holding.sector) {
+                sectorName = holding.sector;
+            }
+            
+            if (!sectorAllocation[sectorName]) {
+                sectorAllocation[sectorName] = {
+                    sector: sectorName,
+                    value: 0,
+                    holdings: []
+                };
+            }
+            
+            sectorAllocation[sectorName].value += holding.value;
+            sectorAllocation[sectorName].holdings.push(holding);
         }
 
         const niftyHistoryResult = await db.query(`SELECT price_date AS "date", closing_price AS "price" FROM index_history WHERE symbol = 'NIFTY50' ORDER BY price_date ASC`);
@@ -262,6 +376,10 @@ const getPortfolioDashboard = async (req, res) => {
             absoluteCapitalPercentage: parseFloat(absoluteCapitalPercentage),
             totalUnits: parseFloat(totalUnits),
             holdings: holdingsWithValue,
+            sectorAllocation: Object.values(sectorAllocation).map(sector => ({
+                ...sector,
+                percentage: totalPortfolioValue > 0 ? (sector.value / totalPortfolioValue) * 100 : 0
+            })),
             navHistory: navHistory,
             niftyHistory: niftyHistoryResult.rows,
             nifty500History: nifty500HistoryResult.rows,

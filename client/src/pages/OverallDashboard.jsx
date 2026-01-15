@@ -274,47 +274,47 @@ const OverallDashboard = () => {
   const indexLineName = selectedIndex === 'nifty50' ? 'Nifty 50' : 'Nifty 500';
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      {queryError && <Alert severity="error" sx={{ mb: 2 }}>Error fetching dashboard: {queryError.response?.data?.msg || queryError.message}</Alert>}
+    <Container maxWidth="xl" sx={{ py: { xs: 1, sm: 2, md: 3, lg: 4 }, px: { xs: 0.5, sm: 1, md: 2, lg: 3 }, overflow: 'hidden', maxWidth: '100%' }}>
+      {queryError && <Alert severity="error" sx={{ mb: 2, mx: 1 }}>Error fetching dashboard: {queryError.response?.data?.msg || queryError.message}</Alert>}
       
-      <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', mb: 4 }}>
+      <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', mb: { xs: 2, sm: 3, md: 4 }, fontSize: { xs: '1.25rem', sm: '1.75rem', md: '2.125rem' }, wordBreak: 'break-word' }}>
         Overall Dashboard
       </Typography>
 
       {/* 2x2 Stats Grid */}
       <motion.div variants={containerVariants} initial="hidden" animate="visible">
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={3}>
+        <Grid container spacing={{ xs: 1, sm: 1.5, md: 2, lg: 3 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
+          <Grid item xs={6} sm={6} md={3}>
             <motion.div variants={itemVariants}>
-              <Paper sx={{ p: 3, textAlign: 'center' }}>
-                <Typography color="text.secondary" gutterBottom>Overall Value</Typography>
-                <Typography variant="h4" color="primary.main" sx={{ fontWeight: 'bold' }}>{formatCurrency(stats.currentValue)}</Typography>
+              <Paper sx={{ p: { xs: 1, sm: 1.5, md: 2, lg: 3 }, textAlign: 'center', height: '100%' }}>
+                <Typography color="text.secondary" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem', md: '0.875rem', lg: '1rem' } }}>Overall Value</Typography>
+                <Typography variant="h4" color="primary.main" sx={{ fontWeight: 'bold', fontSize: { xs: '1rem', sm: '1.25rem', md: '1.75rem', lg: '2.125rem' } }}>{formatCurrency(stats.currentValue)}</Typography>
               </Paper>
             </motion.div>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={6} sm={6} md={3}>
             <motion.div variants={itemVariants}>
-              <Paper sx={{ p: 3, textAlign: 'center' }}>
-                <Typography color="text.secondary" gutterBottom>Total Investment</Typography>
-                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{formatCurrency(stats.totalInvestment)}</Typography>
+              <Paper sx={{ p: { xs: 1, sm: 1.5, md: 2, lg: 3 }, textAlign: 'center', height: '100%' }}>
+                <Typography color="text.secondary" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem', md: '0.875rem', lg: '1rem' } }}>Total Investment</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 'bold', fontSize: { xs: '1rem', sm: '1.25rem', md: '1.75rem', lg: '2.125rem' } }}>{formatCurrency(stats.totalInvestment)}</Typography>
               </Paper>
             </motion.div>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={6} sm={6} md={3}>
             <motion.div variants={itemVariants}>
-              <Paper sx={{ p: 3, textAlign: 'center' }}>
-                <Typography color="text.secondary" gutterBottom>Overall Gain/Loss</Typography>
-                <Typography variant="h4" color={stats.absoluteGain >= 0 ? 'success.main' : 'error.main'} sx={{ fontWeight: 'bold' }}>
+              <Paper sx={{ p: { xs: 1, sm: 1.5, md: 2, lg: 3 }, textAlign: 'center', height: '100%' }}>
+                <Typography color="text.secondary" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem', md: '0.875rem', lg: '1rem' } }}>Overall Gain/Loss</Typography>
+                <Typography variant="h4" color={stats.absoluteGain >= 0 ? 'success.main' : 'error.main'} sx={{ fontWeight: 'bold', fontSize: { xs: '1rem', sm: '1.25rem', md: '1.75rem', lg: '2.125rem' } }}>
                   {formatCurrency(stats.absoluteGain)} ({stats.gainPercentage?.toFixed(2)}%)
                 </Typography>
               </Paper>
             </motion.div>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={6} sm={6} md={3}>
             <motion.div variants={itemVariants}>
-              <Paper sx={{ p: 3, textAlign: 'center' }}>
-                <Typography color="text.secondary" gutterBottom>Current Overall NAV</Typography>
-                <Typography variant="h4" color="secondary.main" sx={{ fontWeight: 'bold' }}>{parseFloat(stats.currentNav || 0).toFixed(4)}</Typography>
+              <Paper sx={{ p: { xs: 1, sm: 1.5, md: 2, lg: 3 }, textAlign: 'center', height: '100%' }}>
+                <Typography color="text.secondary" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem', md: '0.875rem', lg: '1rem' } }}>Current Overall NAV</Typography>
+                <Typography variant="h4" color="secondary.main" sx={{ fontWeight: 'bold', fontSize: { xs: '1rem', sm: '1.25rem', md: '1.75rem', lg: '2.125rem' } }}>{parseFloat(stats.currentNav || 0).toFixed(4)}</Typography>
               </Paper>
             </motion.div>
           </Grid>
@@ -322,13 +322,15 @@ const OverallDashboard = () => {
       </motion.div>
 
       {/* Graph Section - 50/50 Split with Flexbox */}
-      <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', lg: 'row' }, mb: 4 }}>
+      <Box sx={{ display: 'flex', gap: { xs: 1, sm: 1.5, md: 2, lg: 3 }, flexDirection: { xs: 'column', lg: 'row' }, mb: { xs: 2, sm: 3, md: 4 }, overflow: 'hidden' }}>
         {/* Graph 1: Performance History */}
-        <Box sx={{ width: { xs: '100%', lg: '50%' } }}>
-          <Paper sx={{ p: 3, height: 400, display: 'flex', flexDirection: 'column' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6" gutterBottom component="div">Performance History</Typography>
-                <TimePeriodSelector value={timePeriod} onChange={(e, newPeriod) => setTimePeriod(newPeriod)} />
+        <Box sx={{ width: { xs: '100%', lg: '50%' }, minWidth: 0 }}>
+          <Paper sx={{ p: { xs: 1.5, sm: 2, md: 2.5, lg: 3 }, height: { xs: 280, sm: 320, md: 350, lg: 400 }, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, mb: { xs: 1, sm: 1.5, md: 2 }, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                <Typography variant="h6" gutterBottom component="div" sx={{ mb: 0, fontSize: { xs: '0.9rem', sm: '1rem', md: '1.15rem', lg: '1.25rem' } }}>Performance History</Typography>
+                <Box sx={{ transform: { xs: 'scale(0.85)', sm: 'scale(1)' }, transformOrigin: 'left' }}>
+                  <TimePeriodSelector value={timePeriod} onChange={(e, newPeriod) => setTimePeriod(newPeriod)} />
+                </Box>
             </Box>
             <Box sx={{ flex: 1, width: '100%', minHeight: 0 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -347,11 +349,11 @@ const OverallDashboard = () => {
         </Box>
 
         {/* Graph 2: Performance vs. Index */}
-        <Box sx={{ width: { xs: '100%', lg: '50%' } }}>
-          <Paper sx={{ p: 3, height: 400, display: 'flex', flexDirection: 'column' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-                <Typography variant="h6" gutterBottom component="div">Performance vs. Index</Typography>
-                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Box sx={{ width: { xs: '100%', lg: '50%' }, minWidth: 0 }}>
+          <Paper sx={{ p: { xs: 1.5, sm: 2, md: 2.5, lg: 3 }, height: { xs: 280, sm: 320, md: 350, lg: 400 }, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, mb: { xs: 1, sm: 1.5, md: 2 }, flexWrap: 'wrap', gap: 1, flexDirection: { xs: 'column', sm: 'row' } }}>
+                <Typography variant="h6" gutterBottom component="div" sx={{ mb: 0, fontSize: { xs: '0.9rem', sm: '1rem', md: '1.15rem', lg: '1.25rem' } }}>Performance vs. Index</Typography>
+                <Box sx={{ display: 'flex', gap: { xs: 0.5, sm: 1, md: 2 }, alignItems: 'center', flexWrap: 'wrap', transform: { xs: 'scale(0.85)', sm: 'scale(1)' }, transformOrigin: 'left' }}>
                   <IndexSelector value={selectedIndex} onChange={(e) => setSelectedIndex(e.target.value)} />
                   <TimePeriodSelector value={timePeriod} onChange={(e, newPeriod) => setTimePeriod(newPeriod)} />
                 </Box>

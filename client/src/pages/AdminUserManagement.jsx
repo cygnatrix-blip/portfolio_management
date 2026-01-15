@@ -180,9 +180,9 @@ const AdminUserManagement = () => {
   }
 
   return (
-    <Container maxWidth="xl">
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold' }}>
+    <Container maxWidth="xl" sx={{ py: { xs: 1, sm: 2, md: 3, lg: 4 }, px: { xs: 0.5, sm: 1, md: 2, lg: 3 }, overflow: 'hidden', maxWidth: '100%' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: { xs: 2, sm: 3 }, flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', fontSize: { xs: '1.25rem', sm: '1.75rem', md: '2.125rem' }, mb: 0, wordBreak: 'break-word', maxWidth: { xs: '60%', sm: '70%', md: 'none' } }}>
           Manage Investors
         </Typography>
         <Button
@@ -190,6 +190,8 @@ const AdminUserManagement = () => {
           color="secondary"
           startIcon={<AddIcon />}
           onClick={() => handleOpenModal('CREATE')}
+          size="small"
+          sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' }, whiteSpace: 'nowrap' }}
         >
           Create Investor
         </Button>
